@@ -1,0 +1,56 @@
+{
+  "api_keys": {
+    "groq": {
+      "key": "",
+      "enabled": false,
+      "usage": "LLM inference",
+      "rate_limit": 100,
+      "note": "Provided by user for development"
+    },
+    "siliconflow": {
+      "key": "",
+      "enabled": false,
+      "usage": "AI services",
+      "rate_limit": 100,
+      "note": "Provided by user for development"
+    },
+    "openai": {
+      "key": "",
+      "enabled": false,
+      "usage": "ChatGPT integration",
+      "rate_limit": 100
+    },
+    "anthropic": {
+      "key": "",
+      "enabled": false,
+      "usage": "Claude integration",
+      "rate_limit": 100
+    },
+    "google": {
+      "key": "",
+      "enabled": false,
+      "usage": "Google services",
+      "rate_limit": 100
+    },
+    "youtube": {
+      "key": "",
+      "enabled": false,
+      "usage": "YouTube API",
+      "rate_limit": 100
+    }
+  },
+  "security": {
+    "encryption_enabled": true,
+    "storage_method": "environment_variables",
+    "auto_rotate": false,
+    "rotate_interval_days": 30,
+    "audit_logging": true
+  },
+  "notes": [
+    "API keys are not stored in this file for security",
+    "Use environment variables or secure storage",
+    "For development, keys can be temporarily added here",
+    "Never commit API keys to version control",
+    "Rotate keys regularly for production use"
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "termux": {
+    "setup_completed": false,
+    "python_installed": false,
+    "pip_installed": false,
+    "required_packages": [
+      "python",
+      "git",
+      "openjdk-17",
+      "nodejs",
+      "ffmpeg",
+      "imagemagick",
+      "tesseract",
+      "pytesseract",
+      "pillow",
+      "numpy",
+      "opencv-python",
+      "requests",
+      "fastapi",
+      "uvicorn",
+      "pydub",
+      "speechrecognition",
+      "pyttsx3"
+    ],
+    "optional_packages": [
+      "pandas",
+      "scikit-learn",
+      "tensorflow",
+      "torch"
+    ],
+    "environment_variables": {
+      "JAVA_HOME": "/data/data/com.termux/files/usr/lib/jvm/openjdk-17",
+      "ANDROID_HOME": "/data/data/com.termux/files/usr",
+      "PATH": "$PATH:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/lib/jvm/openjdk-17/bin"
+    },
+    "storage": {
+      "home_directory": "/data/data/com.termux/files/home/",
+      "project_directory": "/data/data/com.termux/files/home/Assistant/",
+      "temp_directory": "/data/data/com.termux/files/usr/tmp/",
+      "cache_directory": "/data/data/com.termux/files/usr/cache/"
+    },
+    "permissions": {
+      "storage_permission": true,
+      "camera_permission": true,
+      "microphone_permission": true,
+      "location_permission": false
+    },
+    "network": {
+      "wifi_required": false,
+      "mobile_data_allowed": true,
+      "proxy_settings": {
+        "enabled": false,
+        "host": "",
+        "port": 0
+      }
+    },
+    "shizuku": {
+      "enabled": true,
+      "auto_start": true,
+      "required": true
+    },
+    "accessibility": {
+      "service_enabled": true,
+      "auto_enable": false,
+      "required": true
+    },
+    "performance": {
+      "cpu_governor": "performance",
+      "memory_limit_mb": 2048,
+      "swap_enabled": true,
+      "swap_size_mb": 512
+    }
+  },
+  "bridge": {
+    "build_required": true,
+    "apk_path": "/data/data/com.termux/files/home/Assistant/bridge/app/build/outputs/apk/debug/app-debug.apk",
+    "install_method": "adb",
+    "auto_install": false,
+    "debug_build": true,
+    "release_build": false
+  },
+  "python_server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "auto_start": true,
+    "keep_alive": true,
+    "ssl_enabled": false,
+    "cors_enabled": true
+  },
+  "android_bridge": {
+    "port": 8080,
+    "web_socket_port": 8081,
+    "auto_connect": true,
+    "reconnect_delay_seconds": 5,
+    "max_retries": 10
+  }
+}

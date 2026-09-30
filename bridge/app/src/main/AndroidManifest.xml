@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    
+    package="com.assistant.bridge"
+    
+    android:versionCode="1"
+    android:versionName="1.0.0"
+    android:compileSdk="34"
+    android:targetSdk="34"
+    
+    tools:targetApi="private">
+    
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+    
+    <!-- Required permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
+    <!-- Accessibility Service -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
+    
+    <!-- For Shizuku integration -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    
+    <application
+        android:name=".AssistantBridgeApplication"
+        android:label="JARVIS Bridge"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="true"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="private">
+        
+        <!-- Main Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="JARVIS Bridge"
+            android:theme="@style/AppTheme.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+        <!-- Accessibility Service -->
+        <service
+            android:name=".service.AccessibilityBridgeService"
+            android:label="JARVIS Accessibility"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+        
+        <!-- Foreground Service -->
+        <service
+            android:name=".service.BridgeForegroundService"
+            android:foregroundServiceType="all"
+            android:exported="false" />
+        
+        <!-- Broadcast Receiver for Termux integration -->
+        <receiver
+            android:name=".service.BridgeBroadcastReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.assistant.bridge.ACTION" />
+                <action android:name="com.assistant.bridge.COMMAND" />
+            </intent-filter>
+        </receiver>
+        
+        <!-- Provider for content -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.assistant.bridge.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        
+    </application>
+    
+</manifest>

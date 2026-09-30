@@ -1,0 +1,1024 @@
+"""
+Command Parser Module
+Parses and extracts meaning from user commands
+"""
+
+import json
+import re
+import time
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import asyncio
+
+from ..utils.logger import Logger
+from ..utils.error_handler import ErrorHandler
+from ..memory.knowledge_base import KnowledgeBase
+
+
+class IntentType(Enum):
+    """Types of user intents"""
+    UNKNOWN = auto()
+    UPLOAD = auto()
+    DOWNLOAD = auto()
+    EDIT = auto()
+    CREATE = auto()
+    DELETE = auto()
+    SEARCH = auto()
+    PLAY = auto()
+    STOP = auto()
+    OPEN = auto()
+    CLOSE = auto()
+    SEND = auto()
+    RECEIVE = auto()
+    SHARE = auto()
+    SAVE = auto()
+    LOAD = auto()
+    RECORD = auto()
+    CAPTURE = auto()
+    EXTRACT = auto()
+    ANALYZE = auto()
+    COMPARE = auto()
+    MERGE = auto()
+    LEARN = auto()
+    TEACH = auto()
+    REMEMBER = auto()
+    FORGET = auto()
+    QUESTION = auto()
+    COMMAND = auto()
+    TASK = auto()
+    AUTOMATION = auto()
+
+
+class EntityType(Enum):
+    """Types of entities"""
+    UNKNOWN = auto()
+    FILE = auto()
+    APP = auto()
+    PERSON = auto()
+    PLACE = auto()
+    TIME = auto()
+    DATE = auto()
+    NUMBER = auto()
+    TEXT = auto()
+    IMAGE = auto()
+    VIDEO = auto()
+    AUDIO = auto()
+    DOCUMENT = auto()
+    LINK = auto()
+    EMAIL = auto()
+    PHONE = auto()
+    ADDRESS = auto()
+    PLATFORM = auto()
+    TOPIC = auto()
+    COMMAND = auto()
+
+
+@dataclass
+class ExtractedEntity:
+    """Extracted entity from command"""
+    value: str
+    entity_type: EntityType
+    confidence: float = 1.0
+    start_pos: int = 0
+    end_pos: int = 0
+    metadata: Dict = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict:
+        return {
+            "value": self.value,
+            "type": self.entity_type.name,
+            "confidence": self.confidence,
+            "start_pos": self.start_pos,
+            "end_pos": self.end_pos,
+            "metadata": self.metadata
+        }
+
+
+@dataclass
+class ParsedCommand:
+    """Parsed command data"""
+    text: str
+    intent: IntentType = IntentType.UNKNOWN
+    intent_confidence: float = 0.0
+    entities: Dict[str, ExtractedEntity] = field(default_factory=dict)
+    entity_list: List[ExtractedEntity] = field(default_factory=list)
+    parameters: Dict = field(default_factory=dict)
+    context: Dict = field(default_factory=dict)
+    valid: bool = False
+    error: Optional[str] = None
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> Dict:
+        return {
+            "text": self.text,
+            "intent": self.intent.name,
+            "intent_confidence": self.intent_confidence,
+            "entities": {k: v.to_dict() for k, v in self.entities.items()},
+            "entity_list": [e.to_dict() for e in self.entity_list],
+            "parameters": self.parameters,
+            "context": self.context,
+            "valid": self.valid,
+            "error": self.error,
+            "timestamp": self.timestamp
+        }
+
+
+class CommandParser:
+    """
+    Parses user commands to extract intent and entities
+    """
+    
+    def __init__(self, config, logger: Logger):
+        self.config = config
+        self.logger = logger
+        self.error_handler = ErrorHandler(logger)
+        
+        # Knowledge base for context
+        self.knowledge_base = KnowledgeBase(config, logger)
+        
+        # Intent patterns
+        self._intent_patterns = self._load_intent_patterns()
+        
+        # Entity extractors
+        self._entity_extractors = self._load_entity_extractors()
+        
+        # Context tracking
+        self._recent_commands = []
+        self._max_history = 100
+    
+    def _load_intent_patterns(self) -> Dict[IntentType, List[Tuple[str, float]]]:
+        """Load intent recognition patterns"""
+        return {
+            IntentType.UPLOAD: [
+                (r'\bupload\b', 0.9),
+                (r'\bpost\b', 0.8),
+                (r'\bshare\b.*\bto\b', 0.85),
+                (r'\bput\b.*\bon\b', 0.7),
+                (r'\bsend\b.*\bto\b', 0.75)
+            ],
+            IntentType.DOWNLOAD: [
+                (r'\bdownload\b', 0.9),
+                (r'\bsave\b.*\bfrom\b', 0.8),
+                (r'\bget\b.*\bfrom\b', 0.75)
+            ],
+            IntentType.EDIT: [
+                (r'\bedit\b', 0.9),
+                (r'\bmodify\b', 0.85),
+                (r'\bchange\b', 0.8),
+                (r'\bupdate\b', 0.75),
+                (r'\bfix\b', 0.7),
+                (r'\badjust\b', 0.7)
+            ],
+            IntentType.CREATE: [
+                (r'\bcreate\b', 0.9),
+                (r'\bmake\b', 0.85),
+                (r'\bnew\b', 0.8),
+                (r'\bgenerate\b', 0.8)
+            ],
+            IntentType.DELETE: [
+                (r'\bdelete\b', 0.9),
+                (r'\bremove\b', 0.85),
+                (r'\berase\b', 0.8),
+                (r'\bclear\b', 0.75)
+            ],
+            IntentType.SEARCH: [
+                (r'\bsearch\b', 0.9),
+                (r'\bfind\b', 0.85),
+                (r'\blook\b.*\bup\b', 0.8),
+                (r'\bwhat\b.*\babout\b', 0.75),
+                (r'\bhow\b.*\bto\b', 0.7),
+                (r'\bwho\b', 0.7),
+                (r'\bwhat\b', 0.7),
+                (r'\bwhere\b', 0.7),
+                (r'\bwhen\b', 0.7)
+            ],
+            IntentType.PLAY: [
+                (r'\bplay\b', 0.9),
+                (r'\bstart\b', 0.8),
+                (r'\brun\b', 0.75)
+            ],
+            IntentType.STOP: [
+                (r'\bstop\b', 0.9),
+                (r'\bpause\b', 0.85),
+                (r'\bcancel\b', 0.8),
+                (r'\bquit\b', 0.75)
+            ],
+            IntentType.OPEN: [
+                (r'\bopen\b', 0.9),
+                (r'\blaunch\b', 0.85),
+                (r'\bstart\b', 0.8)
+            ],
+            IntentType.CLOSE: [
+                (r'\bclose\b', 0.9),
+                (r'\bexit\b', 0.85),
+                (r'\bquit\b', 0.8)
+            ],
+            IntentType.SEND: [
+                (r'\bsend\b', 0.9),
+                (r'\bmessage\b', 0.8),
+                (r'\bemail\b', 0.8),
+                (r'\btext\b', 0.75)
+            ],
+            IntentType.RECORD: [
+                (r'\brecord\b', 0.9),
+                (r'\bcapture\b', 0.85)
+            ],
+            IntentType.CAPTURE: [
+                (r'\bcapture\b', 0.9),
+                (r'\bscreenshot\b', 0.9),
+                (r'\bsnap\b', 0.8)
+            ],
+            IntentType.EXTRACT: [
+                (r'\bextract\b', 0.9),
+                (r'\bocr\b', 0.85),
+                (r'\bget\b.*\btext\b', 0.8),
+                (r'\bread\b.*\btext\b', 0.75)
+            ],
+            IntentType.ANALYZE: [
+                (r'\banalyze\b', 0.9),
+                (r'\bcheck\b', 0.8),
+                (r'\bexamine\b', 0.75)
+            ],
+            IntentType.COMPARE: [
+                (r'\bcompare\b', 0.9),
+                (r'\bdifference\b', 0.75)
+            ],
+            IntentType.MERGE: [
+                (r'\bmerge\b', 0.9),
+                (r'\bcombine\b', 0.85),
+                (r'\bjoin\b', 0.8)
+            ],
+            IntentType.LEARN: [
+                (r'\blearn\b', 0.9),
+                (r'\bteach\b', 0.85),
+                (r'\bstudy\b', 0.8)
+            ],
+            IntentType.TEACH: [
+                (r'\bteach\b', 0.9),
+                (r'\btrain\b', 0.85)
+            ],
+            IntentType.REMEMBER: [
+                (r'\bremember\b', 0.9),
+                (r'\bsave\b.*\binformation\b', 0.8),
+                (r'\bstore\b', 0.75)
+            ],
+            IntentType.FORGET: [
+                (r'\bforget\b', 0.9),
+                (r'\bdelete\b.*\bmemory\b', 0.8)
+            ],
+            IntentType.QUESTION: [
+                (r'\bwhat\b', 0.7),
+                (r'\bhow\b', 0.7),
+                (r'\bwhy\b', 0.7),
+                (r'\bwho\b', 0.7),
+                (r'\bwhen\b', 0.7),
+                (r'\bwhere\b', 0.7),
+                (r'\bcan\b.*\byou\b', 0.8),
+                (r'\bdo\b.*\byou\b', 0.8)
+            ]
+        }
+    
+    def _load_entity_extractors(self) -> Dict[EntityType, callable]:
+        """Load entity extraction functions"""
+        return {
+            EntityType.FILE: self._extract_file,
+            EntityType.APP: self._extract_app,
+            EntityType.PLATFORM: self._extract_platform,
+            EntityType.TEXT: self._extract_text,
+            EntityType.IMAGE: self._extract_image,
+            EntityType.VIDEO: self._extract_video,
+            EntityType.AUDIO: self._extract_audio,
+            EntityType.LINK: self._extract_link,
+            EntityType.EMAIL: self._extract_email,
+            EntityType.PHONE: self._extract_phone,
+            EntityType.TIME: self._extract_time,
+            EntityType.DATE: self._extract_date,
+            EntityType.NUMBER: self._extract_number,
+            EntityType.TOPIC: self._extract_topic
+        }
+    
+    async def parse(self, text: str) -> ParsedCommand:
+        """
+        Parse a command text
+        
+        Args:
+            text: The command text to parse
+            
+        Returns:
+            ParsedCommand object
+        """
+        start_time = time.time()
+        
+        try:
+            # Clean and normalize text
+            cleaned_text = self._clean_text(text)
+            
+            # Extract intent
+            intent, intent_confidence = self._extract_intent(cleaned_text)
+            
+            # Extract entities
+            entities, entity_list = self._extract_entities(cleaned_text)
+            
+            # Extract parameters
+            parameters = self._extract_parameters(cleaned_text, intent, entities)
+            
+            # Add context
+            context = self._get_context(cleaned_text, intent, entities)
+            
+            # Validate
+            valid = self._validate_command(intent, entities)
+            
+            parsed = ParsedCommand(
+                text=cleaned_text,
+                intent=intent,
+                intent_confidence=intent_confidence,
+                entities=entities,
+                entity_list=entity_list,
+                parameters=parameters,
+                context=context,
+                valid=valid,
+                timestamp=time.time()
+            )
+            
+            # Add to history
+            self._add_to_history(parsed)
+            
+            self.logger.debug(f"Parsed command: intent={intent.name}, confidence={intent_confidence:.2f}, entities={len(entities)}")
+            
+            return parsed
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "parse_command")
+            return ParsedCommand(
+                text=text,
+                intent=IntentType.UNKNOWN,
+                intent_confidence=0.0,
+                valid=False,
+                error=str(e)
+            )
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text for parsing"""
+        # Convert to lowercase for easier matching
+        text = text.lower()
+        
+        # Remove extra whitespace
+        text = ' '.join(text.split())
+        
+        # Remove special characters that might interfere
+        text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
+        
+        return text.strip()
+    
+    def _extract_intent(self, text: str) -> Tuple[IntentType, float]:
+        """Extract intent from text"""
+        best_intent = IntentType.UNKNOWN
+        best_confidence = 0.0
+        
+        for intent, patterns in self._intent_patterns.items():
+            for pattern, base_confidence in patterns:
+                if re.search(pattern, text, re.IGNORECASE):
+                    # Calculate confidence based on pattern match
+                    confidence = base_confidence
+                    
+                    # Boost confidence if pattern appears early in text
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        position = match.start()
+                        # Earlier position = higher confidence
+                        position_factor = 1.0 - (position / len(text) * 0.5)
+                        confidence *= position_factor
+                    
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_intent = intent
+        
+        # If no specific intent found, try to infer from context
+        if best_intent == IntentType.UNKNOWN:
+            best_intent, best_confidence = self._infer_intent(text)
+        
+        return best_intent, min(best_confidence, 1.0)
+    
+    def _infer_intent(self, text: str) -> Tuple[IntentType, float]:
+        """Infer intent from text context"""
+        # Check for question patterns
+        if text.endswith('?') or any(word in text for word in ['what', 'how', 'why', 'who', 'when', 'where']):
+            return IntentType.QUESTION, 0.7
+        
+        # Check for command patterns
+        if any(word in text for word in ['please', 'can you', 'could you', 'make', 'do']):
+            return IntentType.COMMAND, 0.6
+        
+        # Check for task patterns
+        if len(text.split()) > 3:  # Longer commands are likely tasks
+            return IntentType.TASK, 0.5
+        
+        return IntentType.UNKNOWN, 0.0
+    
+    def _extract_entities(self, text: str) -> Tuple[Dict[str, ExtractedEntity], List[ExtractedEntity]]:
+        """Extract entities from text"""
+        entities = {}
+        entity_list = []
+        
+        for entity_type, extractor in self._entity_extractors.items():
+            extracted = extractor(text)
+            for entity in extracted:
+                # Generate unique key
+                key = f"{entity.entity_type.name}_{len(entities)}"
+                entities[key] = entity
+                entity_list.append(entity)
+        
+        return entities, entity_list
+    
+    def _extract_file(self, text: str) -> List[ExtractedEntity]:
+        """Extract file references"""
+        entities = []
+        
+        # Look for file extensions
+        file_patterns = [
+            (r'\.mp4\b', EntityType.VIDEO),
+            (r'\.mp3\b', EntityType.AUDIO),
+            (r'\.wav\b', EntityType.AUDIO),
+            (r'\.jpg\b', EntityType.IMAGE),
+            (r'\.jpeg\b', EntityType.IMAGE),
+            (r'\.png\b', EntityType.IMAGE),
+            (r'\.gif\b', EntityType.IMAGE),
+            (r'\.pdf\b', EntityType.DOCUMENT),
+            (r'\.doc\b', EntityType.DOCUMENT),
+            (r'\.docx\b', EntityType.DOCUMENT),
+            (r'\.txt\b', EntityType.DOCUMENT),
+            (r'\.xls\b', EntityType.DOCUMENT),
+            (r'\.xlsx\b', EntityType.DOCUMENT)
+        ]
+        
+        for pattern, entity_type in file_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                # Try to extract filename
+                start = max(0, match.start() - 20)
+                end = min(len(text), match.end() + 20)
+                context = text[start:end]
+                
+                # Find word boundaries
+                before = context[:match.start()-start].split()
+                filename = before[-1] if before else "file"
+                
+                entities.append(ExtractedEntity(
+                    value=filename + match.group(),
+                    entity_type=entity_type,
+                    confidence=0.9,
+                    start_pos=match.start(),
+                    end_pos=match.end(),
+                    metadata={"type": entity_type.name.lower()}
+                ))
+        
+        # Look for generic file references
+        file_words = ['file', 'video', 'image', 'photo', 'picture', 'audio', 'document']
+        for word in file_words:
+            pattern = fr'\b{word}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=match.group(),
+                    entity_type=EntityType.FILE,
+                    confidence=0.7,
+                    start_pos=match.start(),
+                    end_pos=match.end(),
+                    metadata={"word": word}
+                ))
+        
+        return entities
+    
+    def _extract_app(self, text: str) -> List[ExtractedEntity]:
+        """Extract app references"""
+        entities = []
+        
+        # Known apps
+        known_apps = {
+            'youtube': 'com.google.android.youtube',
+            'chatgpt': 'com.chatgpt',
+            'deepseek': 'com.deepseek',
+            'grok': 'com.grok',
+            'kinemaster': 'com.kinemaster',
+            'whatsapp': 'com.whatsapp',
+            'chrome': 'com.android.chrome',
+            'gallery': 'com.android.gallery3d',
+            'photos': 'com.google.android.apps.photos',
+            'files': 'com.google.android.apps.nbu.files',
+            'camera': 'com.android.camera'
+        }
+        
+        for app_name, package in known_apps.items():
+            pattern = fr'\b{app_name}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=app_name,
+                    entity_type=EntityType.APP,
+                    confidence=0.95,
+                    start_pos=match.start(),
+                    end_pos=match.end(),
+                    metadata={"package": package}
+                ))
+        
+        # Generic app references
+        app_patterns = [
+            (r'\bapp\b', EntityType.APP),
+            (r'\bapplication\b', EntityType.APP)
+        ]
+        
+        for pattern, entity_type in app_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=match.group(),
+                    entity_type=entity_type,
+                    confidence=0.6,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                ))
+        
+        return entities
+    
+    def _extract_platform(self, text: str) -> List[ExtractedEntity]:
+        """Extract platform references"""
+        entities = []
+        
+        platforms = [
+            'youtube', 'facebook', 'instagram', 'twitter', 'x', 'tiktok',
+            'whatsapp', 'telegram', 'signal', 'discord', 'reddit',
+            'email', 'gmail', 'outlook', 'yahoo',
+            'drive', 'dropbox', 'mega', 'google drive'
+        ]
+        
+        for platform in platforms:
+            pattern = fr'\b{platform}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=platform,
+                    entity_type=EntityType.PLATFORM,
+                    confidence=0.9,
+                    start_pos=match.start(),
+                    end_pos=match.end(),
+                    metadata={"platform_type": "social" if platform in ['facebook', 'instagram', 'twitter', 'x', 'tiktok'] else "storage"}
+                ))
+        
+        return entities
+    
+    def _extract_text(self, text: str) -> List[ExtractedEntity]:
+        """Extract text content"""
+        entities = []
+        
+        # Look for quoted text
+        quote_matches = re.finditer(r'"([^"]*)"', text)
+        for match in quote_matches:
+            entities.append(ExtractedEntity(
+                value=match.group(1),
+                entity_type=EntityType.TEXT,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"quoted": True}
+            ))
+        
+        # Look for text in parentheses
+        paren_matches = re.finditer(r'\(([^\)]*)\)', text)
+        for match in paren_matches:
+            entities.append(ExtractedEntity(
+                value=match.group(1),
+                entity_type=EntityType.TEXT,
+                confidence=0.8,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"in_parentheses": True}
+            ))
+        
+        return entities
+    
+    def _extract_image(self, text: str) -> List[ExtractedEntity]:
+        """Extract image references"""
+        entities = []
+        
+        image_words = ['image', 'photo', 'picture', 'screenshot', 'pic', 'img']
+        for word in image_words:
+            pattern = fr'\b{word}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=match.group(),
+                    entity_type=EntityType.IMAGE,
+                    confidence=0.8,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                ))
+        
+        return entities
+    
+    def _extract_video(self, text: str) -> List[ExtractedEntity]:
+        """Extract video references"""
+        entities = []
+        
+        video_words = ['video', 'movie', 'clip', 'recording', 'footage']
+        for word in video_words:
+            pattern = fr'\b{word}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=match.group(),
+                    entity_type=EntityType.VIDEO,
+                    confidence=0.85,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                ))
+        
+        return entities
+    
+    def _extract_audio(self, text: str) -> List[ExtractedEntity]:
+        """Extract audio references"""
+        entities = []
+        
+        audio_words = ['audio', 'sound', 'music', 'recording', 'voice']
+        for word in audio_words:
+            pattern = fr'\b{word}\b'
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    value=match.group(),
+                    entity_type=EntityType.AUDIO,
+                    confidence=0.8,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                ))
+        
+        return entities
+    
+    def _extract_link(self, text: str) -> List[ExtractedEntity]:
+        """Extract links/URLs"""
+        entities = []
+        
+        # URL pattern
+        url_pattern = r'https?://[^\s]+|www\.[^\s]+'
+        matches = re.finditer(url_pattern, text, re.IGNORECASE)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.LINK,
+                confidence=0.95,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"url": True}
+            ))
+        
+        return entities
+    
+    def _extract_email(self, text: str) -> List[ExtractedEntity]:
+        """Extract email addresses"""
+        entities = []
+        
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        matches = re.finditer(email_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.EMAIL,
+                confidence=0.95,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"email": True}
+            ))
+        
+        return entities
+    
+    def _extract_phone(self, text: str) -> List[ExtractedEntity]:
+        """Extract phone numbers"""
+        entities = []
+        
+        # Simple phone pattern
+        phone_pattern = r'\+?[0-9\s-]{10,}'
+        matches = re.finditer(phone_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.PHONE,
+                confidence=0.85,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"phone": True}
+            ))
+        
+        return entities
+    
+    def _extract_time(self, text: str) -> List[ExtractedEntity]:
+        """Extract time references"""
+        entities = []
+        
+        # Time patterns (HH:MM)
+        time_pattern = r'\b([01]?[0-9]|2[0-3]):[0-5][0-9]\b'
+        matches = re.finditer(time_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.TIME,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"format": "HH:MM"}
+            ))
+        
+        # AM/PM times
+        amp_pattern = r'\b([01]?[0-9]|1[0-2]):[0-5][0-9]\s*[ap]m\b'
+        matches = re.finditer(amp_pattern, text, re.IGNORECASE)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.TIME,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"format": "HH:MM AM/PM"}
+            ))
+        
+        return entities
+    
+    def _extract_date(self, text: str) -> List[ExtractedEntity]:
+        """Extract date references"""
+        entities = []
+        
+        # Date patterns (YYYY-MM-DD)
+        date_pattern = r'\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b'
+        matches = re.finditer(date_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.DATE,
+                confidence=0.95,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"format": "YYYY-MM-DD"}
+            ))
+        
+        # DD/MM/YYYY or MM/DD/YYYY
+        date_pattern2 = r'\b[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}\b'
+        matches = re.finditer(date_pattern2, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.DATE,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"format": "DD/MM/YYYY or MM/DD/YYYY"}
+            ))
+        
+        return entities
+    
+    def _extract_number(self, text: str) -> List[ExtractedEntity]:
+        """Extract number references"""
+        entities = []
+        
+        # Integer numbers
+        num_pattern = r'\b[0-9]+\b'
+        matches = re.finditer(num_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.NUMBER,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"type": "integer"}
+            ))
+        
+        # Decimal numbers
+        dec_pattern = r'\b[0-9]+\.[0-9]+\b'
+        matches = re.finditer(dec_pattern, text)
+        for match in matches:
+            entities.append(ExtractedEntity(
+                value=match.group(),
+                entity_type=EntityType.NUMBER,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"type": "decimal"}
+            ))
+        
+        return entities
+    
+    def _extract_topic(self, text: str) -> List[ExtractedEntity]:
+        """Extract topic/keyword entities"""
+        entities = []
+        
+        # Extract nouns and noun phrases
+        # This is a simplified version - a full implementation would use NLP
+        words = text.split()
+        
+        # Skip common words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+        
+        for i, word in enumerate(words):
+            if word not in stop_words and len(word) > 2:
+                entities.append(ExtractedEntity(
+                    value=word,
+                    entity_type=EntityType.TOPIC,
+                    confidence=0.7,
+                    start_pos=0,  # Simplified
+                    end_pos=0,
+                    metadata={"type": "keyword"}
+                ))
+        
+        return entities
+    
+    def _extract_parameters(self, text: str, intent: IntentType, 
+                           entities: Dict[str, ExtractedEntity]) -> Dict:
+        """Extract parameters from command"""
+        parameters = {}
+        
+        # Intent-specific parameter extraction
+        if intent == IntentType.UPLOAD:
+            parameters["target"] = self._find_entity_value(entities, EntityType.PLATFORM)
+            parameters["file"] = self._find_entity_value(entities, EntityType.FILE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.VIDEO)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.IMAGE)
+            
+        elif intent == IntentType.EDIT:
+            parameters["file"] = self._find_entity_value(entities, EntityType.FILE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.IMAGE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.VIDEO)
+            parameters["app"] = self._find_entity_value(entities, EntityType.APP)
+            
+        elif intent == IntentType.SEARCH:
+            parameters["query"] = self._find_entity_value(entities, EntityType.TEXT)
+            parameters["query"] = parameters["query"] or self._find_entity_value(entities, EntityType.TOPIC)
+            parameters["sources"] = self._find_all_entities(entities, EntityType.PLATFORM)
+            
+        elif intent == IntentType.SEND:
+            parameters["recipient"] = self._find_entity_value(entities, EntityType.EMAIL)
+            parameters["recipient"] = parameters["recipient"] or self._find_entity_value(entities, EntityType.PHONE)
+            parameters["content"] = self._find_entity_value(entities, EntityType.TEXT)
+            parameters["app"] = self._find_entity_value(entities, EntityType.APP)
+            
+        elif intent == IntentType.CAPTURE:
+            parameters["type"] = "screenshot"
+            
+        elif intent == IntentType.EXTRACT:
+            parameters["source"] = self._find_entity_value(entities, EntityType.IMAGE)
+            parameters["source"] = parameters["source"] or self._find_entity_value(entities, EntityType.FILE)
+            parameters["method"] = "ocr"
+        
+        # Add generic parameters
+        parameters["text"] = text
+        parameters["intent"] = intent.name.lower()
+        
+        return parameters
+    
+    def _find_entity_value(self, entities: Dict[str, ExtractedEntity], 
+                          entity_type: EntityType) -> Optional[str]:
+        """Find first entity of a specific type"""
+        for entity in entities.values():
+            if entity.entity_type == entity_type:
+                return entity.value
+        return None
+    
+    def _find_all_entities(self, entities: Dict[str, ExtractedEntity], 
+                          entity_type: EntityType) -> List[str]:
+        """Find all entities of a specific type"""
+        return [e.value for e in entities.values() if e.entity_type == entity_type]
+    
+    def _get_context(self, text: str, intent: IntentType, 
+                    entities: Dict[str, ExtractedEntity]) -> Dict:
+        """Get context information for the command"""
+        context = {
+            "text_length": len(text),
+            "word_count": len(text.split()),
+            "intent": intent.name,
+            "entity_count": len(entities),
+            "entity_types": [e.entity_type.name for e in entities.values()]
+        }
+        
+        # Add recent command context
+        if self._recent_commands:
+            context["recent_intents"] = [c.intent.name for c in self._recent_commands[-3:]]
+        
+        return context
+    
+    def _validate_command(self, intent: IntentType, 
+                         entities: Dict[str, ExtractedEntity]) -> bool:
+        """Validate that the command has required information"""
+        if intent == IntentType.UNKNOWN:
+            return False
+        
+        # Check for required entities based on intent
+        required = {
+            IntentType.UPLOAD: [EntityType.FILE],
+            IntentType.EDIT: [EntityType.FILE, EntityType.IMAGE, EntityType.VIDEO],
+            IntentType.SEND: [EntityType.EMAIL, EntityType.PHONE],
+            IntentType.SEARCH: [EntityType.TEXT, EntityType.TOPIC]
+        }
+        
+        if intent in required:
+            for entity_type in required[intent]:
+                if not any(e.entity_type == entity_type for e in entities.values()):
+                    # Not all required entities present
+                    return False
+        
+        return True
+    
+    def _add_to_history(self, parsed: ParsedCommand):
+        """Add parsed command to history"""
+        self._recent_commands.append(parsed)
+        if len(self._recent_commands) > self._max_history:
+            self._recent_commands = self._recent_commands[-self._max_history:]
+    
+    def get_recent_commands(self, count: int = 10) -> List[ParsedCommand]:
+        """Get recent commands"""
+        return self._recent_commands[-count:]
+    
+    def clear_history(self):
+        """Clear command history"""
+        self._recent_commands = []
+    
+    async def learn_from_feedback(self, command: str, correct_intent: IntentType, 
+                                correct_entities: Dict[str, str]) -> bool:
+        """
+        Learn from user feedback to improve parsing
+        
+        Args:
+            command: The original command text
+            correct_intent: The correct intent
+            correct_entities: Dictionary of correct entity type -> value
+            
+        Returns:
+            True if learning was successful
+        """
+        try:
+            # In a real implementation, this would update the parsing models
+            # For now, just log the feedback
+            self.logger.info(f"Learning from feedback: '{command}' -> {correct_intent.name}")
+            
+            # Add to knowledge base
+            await self.knowledge_base.store_command_pattern(
+                command, correct_intent, correct_entities
+            )
+            
+            return True
+        except Exception as e:
+            self.error_handler.handle_error(e, "learn_from_feedback")
+            return False
+    
+    async def get_suggestions(self, partial_text: str) -> List[str]:
+        """
+        Get suggestions for auto-completion
+        
+        Args:
+            partial_text: The partial command text
+            
+        Returns:
+            List of suggested completions
+        """
+        suggestions = []
+        
+        # Simple suggestions based on intent patterns
+        for intent, patterns in self._intent_patterns.items():
+            for pattern, _ in patterns:
+                if re.search(pattern, partial_text, re.IGNORECASE):
+                    # Suggest common completions for this intent
+                    completions = self._get_intent_completions(intent)
+                    suggestions.extend(completions)
+        
+        # Remove duplicates
+        suggestions = list(set(suggestions))
+        
+        return suggestions
+    
+    def _get_intent_completions(self, intent: IntentType) -> List[str]:
+        """Get common completions for an intent"""
+        completions = {
+            IntentType.UPLOAD: [
+                " to YouTube",
+                " to Google Drive",
+                " this video",
+                " this file"
+            ],
+            IntentType.EDIT: [
+                " this photo",
+                " this video",
+                " in Kinemaster",
+                " with filters"
+            ],
+            IntentType.SEARCH: [
+                " on Google",
+                " on YouTube",
+                " for information",
+                " about this"
+            ],
+            IntentType.SEND: [
+                " to my friend",
+                " via WhatsApp",
+                " an email",
+                " a message"
+            ]
+        }
+        
+        return completions.get(intent, [])

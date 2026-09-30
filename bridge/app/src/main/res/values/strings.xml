@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS Bridge</string>
+    
+    <!-- Main Activity -->
+    <string name="status_text">Status: Loading...</string>
+    <string name="start_bridge_button">Start Bridge</string>
+    <string name="stop_bridge_button">Stop Bridge</string>
+    <string name="check_accessibility_button">Check Accessibility</string>
+    <string name="test_connection_button">Test Connection</string>
+    
+    <!-- Notifications -->
+    <string name="notification_channel_name">JARVIS Bridge</string>
+    <string name="notification_channel_description">Bridge service notifications</string>
+    <string name="notification_title">JARVIS Bridge</string>
+    <string name="notification_text">Bridge service is running</string>
+    
+    <!-- Accessibility -->
+    <string name="accessibility_service_label">JARVIS Accessibility</string>
+    <string name="accessibility_service_description">Allows JARVIS to interact with apps and read screen content</string>
+    
+    <!-- Errors -->
+    <string name="error_unknown">Unknown error occurred</string>
+    <string name="error_connection">Connection failed</string>
+    <string name="error_timeout">Operation timed out</string>
+    <string name="error_permission">Permission denied</string>
+    <string name="error_app_not_found">App not found</string>
+    
+    <!-- Success messages -->
+    <string name="success_connected">Connected successfully</string>
+    <string name="success_started">Service started</string>
+    <string name="success_stopped">Service stopped</string>
+    <string name="success_command_executed">Command executed</string>
+    
+    <!-- Toasts -->
+    <string name="toast_accessibility_enabled">Accessibility service is enabled</string>
+    <string name="toast_accessibility_disabled">Accessibility service is disabled</string>
+    <string name="toast_termux_not_installed">Termux is not installed</string>
+    <string name="toast_shizuku_not_available">Shizuku is not available</string>
+    
+    <!-- App capabilities -->
+    <string name="capability_browser">Browser</string>
+    <string name="capability_video">Video Player</string>
+    <string name="capability_chat">Chat/ Messaging</string>
+    <string name="capability_ai">AI Assistant</string>
+    <string name="capability_editor">Photo/ Video Editor</string>
+    <string name="capability_file_manager">File Manager</string>
+</resources>

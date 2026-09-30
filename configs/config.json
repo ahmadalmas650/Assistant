@@ -1,0 +1,173 @@
+{
+  "app_name": "JARVIS",
+  "version": "1.0.0",
+  "description": "Production-grade Android AI Assistant",
+  "author": "ahmadalmas650",
+  
+  "device": {
+    "target_platform": "Android",
+    "min_sdk_version": 21,
+    "target_sdk_version": 34,
+    "min_ram": "3GB",
+    "min_storage": "10GB",
+    "architecture": "ARM64"
+  },
+  
+  "brain": {
+    "wake_word": "jarvis",
+    "max_memory_usage_gb": 2.0,
+    "max_cpu_usage": 0.8,
+    "min_confidence_threshold": 0.7,
+    "learning_enabled": true,
+    "cloud_sync_enabled": true,
+    "privacy_mode": true,
+    "debug_mode": false,
+    "response_timeout_seconds": 30,
+    "task_timeout_seconds": 300,
+    "max_concurrent_tasks": 3
+  },
+  
+  "input": {
+    "voice_enabled": true,
+    "text_enabled": true,
+    "default_language": "en",
+    "supported_languages": ["en", "ur", "hi", "es", "fr", "de"],
+    "voice_sample_rate": 16000,
+    "voice_channels": 1,
+    "voice_sample_width": 2
+  },
+  
+  "apps": {
+    "allowed_apps": [
+      "com.android.chrome",
+      "com.google.android.youtube",
+      "com.chatgpt",
+      "com.deepseek.app",
+      "com.grok",
+      "com.kinemaster",
+      "com.lexa.fakegapp",
+      "org.telegram.messenger",
+      "com.whatsapp",
+      "com.google.android.gm",
+      "com.android.email"
+    ],
+    "dangerous_apps": [
+      "com.android.settings",
+      "com.android.phone",
+      "com.android.contacts"
+    ],
+    "app_timeout_seconds": 60,
+    "app_launch_delay_ms": 1000
+  },
+  
+  "accessibility": {
+    "enabled": true,
+    "screenshot_enabled": true,
+    "ocr_enabled": true,
+    "full_control": true,
+    "privacy_filter": true
+  },
+  
+  "learning": {
+    "sources": [
+      "chatgpt",
+      "deepseek",
+      "youtube",
+      "grok",
+      "chrome",
+      "local_knowledge"
+    ],
+    "merge_strategy": "intelligent",
+    "confidence_threshold": 0.6,
+    "min_sources": 2,
+    "max_learning_tasks": 5,
+    "knowledge_retention_days": 30
+  },
+  
+  "memory": {
+    "local_storage_path": "/data/data/com.termux/files/home/Assistant/data/",
+    "cloud_provider": "mega",
+    "auto_sync": true,
+    "sync_interval_hours": 24,
+    "temp_data_cleanup": true,
+    "temp_data_retention_hours": 1
+  },
+  
+  "cloud": {
+    "mega": {
+      "email": "",
+      "password": "",
+      "root_folder": "JARVIS_Knowledge"
+    }
+  },
+  
+  "privacy": {
+    "sensitive_data_patterns": [
+      "password",
+      "secret",
+      "credit.*card",
+      "bank.*account",
+      "ssn",
+      "social.*security",
+      "api.*key",
+      "token"
+    ],
+    "encryption_enabled": true,
+    "data_masking": true,
+    "user_consent_required": true
+  },
+  
+  "network": {
+    "timeout_seconds": 30,
+    "retry_count": 3,
+    "use_proxy": false,
+    "cache_enabled": true,
+    "cache_size_mb": 100
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "file_enabled": true,
+    "console_enabled": true,
+    "max_file_size_mb": 10,
+    "max_files": 5,
+    "log_retention_days": 7
+  },
+  
+  "features": {
+    "voice_input": true,
+    "text_input": true,
+    "wake_word_detection": true,
+    "command_preview": true,
+    "live_control": true,
+    "background_execution": true,
+    "multi_source_learning": true,
+    "screenshot": true,
+    "ocr": true,
+    "app_integration": true,
+    "accessibility_control": true,
+    "cloud_sync": true,
+    "privacy_protection": true
+  },
+  
+  "api_keys": {
+    "groq": "",
+    "siliconflow": "",
+    "note": "API keys should be stored securely in environment variables or secure storage"
+  },
+  
+  "termux": {
+    "python_path": "python",
+    "script_dir": "/data/data/com.termux/files/home/Assistant/scripts/",
+    "brain_path": "/data/data/com.termux/files/home/Assistant/brain/main.py",
+    "auto_start": true,
+    "keep_alive": true
+  },
+  
+  "performance": {
+    "max_memory_mb": 2048,
+    "max_cpu_cores": 2,
+    "battery_optimization": true,
+    "low_power_mode": false
+  }
+}
