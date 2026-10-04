@@ -86,7 +86,8 @@ class AccessibilityNode:
         return {
             "node_id": self.node_id,
             "text": self.text,
-            "content_description": self.content_description,
+            "content_descrip
+tion": self.content_description,
             "class_name": self.class_name,
             "package_name": self.package_name,
             "bounds": self.bounds,
@@ -147,7 +148,8 @@ class AccessibilityController:
     Controls Android accessibility features
     
     This module interacts with:
-    - Android AccessibilityService
+ 
+   - Android AccessibilityService
     - Shizuku for advanced APIs
     - Termux for command execution
     """
@@ -207,7 +209,8 @@ class AccessibilityController:
         }
     
     async def enable_service(self) -> bool:
-        """Enable accessibility service"""
+        ""
+"Enable accessibility service"""
         # In a real implementation, this would open settings for the user
         self.logger.info("Requesting accessibility service enable")
         
@@ -262,7 +265,8 @@ class AccessibilityController:
     
     async def get_current_activity(self) -> Optional[str]:
         """Get the current activity name"""
-        # Mock implementation
+        # Mock im
+plementation
         return ".MainActivity"
     
     # Node Operations
@@ -318,7 +322,8 @@ class AccessibilityController:
         ))
         
         # Cache nodes
-        self._node_cache = {n.node_id: n for n in nodes}
+        self.
+_node_cache = {n.node_id: n for n in nodes}
         self._cache_timestamp = time.time()
         
         return nodes
@@ -375,7 +380,8 @@ class AccessibilityController:
     
     async def refresh_node_cache(self):
         """Refresh the node cache"""
-        self._node_cache = {}
+        self._node_c
+ache = {}
         await self.get_all_nodes(refresh=True)
     
     # Action Methods
@@ -421,6 +427,7 @@ class AccessibilityController:
                 AccessibilityAction.VOLUME_DOWN: self._handle_volume_down,
                 AccessibilityAction.OPEN_APP: self._handle_open_app,
                 AccessibilityAction.CLOSE_APP: self._handle_close_app,
+
                 AccessibilityAction.SWITCH_APP: self._handle_switch_app,
                 AccessibilityAction.TAKE_SCREENSHOT: self._handle_screenshot,
                 AccessibilityAction.EXTRACT_TEXT: self._handle_extract_text,
@@ -472,6 +479,7 @@ class AccessibilityController:
             x = kwargs.get("x", self._screen_width // 2)
             y = kwargs.get("y", self._screen_height // 2)
             self.logger.info(f"Clicking at: ({x}, {y})")
+
             return ActionResult(
                 action=AccessibilityAction.CLICK,
                 success=True,
@@ -521,7 +529,8 @@ class AccessibilityController:
         direction = kwargs.get("direction", SwipeDirection.RIGHT)
         duration = kwargs.get("duration", 300)  # ms
         
-        # Calculate swipe coordinates
+        # Calculate swipe coord
+inates
         if direction == SwipeDirection.UP:
             start = (self._screen_width // 2, self._screen_height - 100)
             end = (self._screen_width // 2, 100)
@@ -566,7 +575,8 @@ class AccessibilityController:
         text = kwargs.get("text", "")
         
         if node:
-            self.logger.info(f"Typing '{text}' into node: {node.node_id}")
+            self.logger.info(f"Typing '
+{text}' into node: {node.node_id}")
         else:
             self.logger.info(f"Typing: {text}")
         
@@ -620,7 +630,8 @@ class AccessibilityController:
             message="Recents button pressed"
         )
     
-    async def _handle_menu(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+    async def _handle_menu(self, node: AccessibilityNode = None, **kwargs) -> Actio
+nResult:
         """Handle menu button press"""
         self.logger.info("Pressing menu button")
         return ActionResult(
@@ -647,7 +658,7 @@ class AccessibilityController:
             message="Volume up pressed"
         )
     
-    async def _handle_volume_down(self, node: AccessabilityNode = None, **kwargs) -> ActionResult:
+    async def _handle_volume_down(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
         """Handle volume down press"""
         self.logger.info("Pressing volume down")
         return ActionResult(
@@ -674,7 +685,8 @@ class AccessibilityController:
             action=AccessibilityAction.OPEN_APP,
             success=True,
             message=f"Opened app: {package_name}",
-            data={"package_name": package_name}
+            d
+ata={"package_name": package_name}
         )
     
     async def _handle_close_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
@@ -727,7 +739,8 @@ class AccessibilityController:
             }
         )
     
-    async def _handle_extract_text(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+    async 
+def _handle_extract_text(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
         """Handle text extraction action"""
         if node:
             self.logger.info(f"Extracting text from node: {node.node_id}")
@@ -777,7 +790,8 @@ class AccessibilityController:
         """Click at specific coordinates"""
         return await self.perform_action(AccessibilityAction.CLICK, x=x, y=y)
     
-    async def type_text(self, text: str) -> ActionResult:
+    async def type_t
+ext(self, text: str) -> ActionResult:
         """Type text"""
         return await self.perform_action(AccessibilityAction.TYPE, text=text)
     
@@ -821,7 +835,8 @@ class AccessibilityController:
     
     def on_action_complete(self, callback: Callable[[ActionResult], None]):
         """Register action completion callback"""
-        self._on_action_complete.append(callback)
+        self._on_action_c
+omplete.append(callback)
     
     def on_service_state_change(self, callback: Callable[[bool], None]):
         """Register service state change callback"""

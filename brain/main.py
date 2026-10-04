@@ -31,7 +31,6 @@ from brain.modules.input_processor import InputProcessor
 from brain.modules.command_parser import CommandParser
 from brain.modules.wake_word_detector import WakeWordDetector
 from brain.modules.accessibility_controller import AccessibilityController
-from brain.modules.screenshot_manager import ScreenshotManager
 from brain.modules.ocr_engine import OCREngine
 from brain.modules.app_integrator import AppIntegrator
 from brain.modules.output_generator import OutputGenerator
@@ -61,7 +60,6 @@ class JARVIS:
         self.command_parser: Optional[CommandParser] = None
         self.wake_word_detector: Optional[WakeWordDetector] = None
         self.accessibility_controller: Optional[AccessibilityController] = None
-        self.screenshot_manager: Optional[ScreenshotManager] = None
         self.ocr_engine: Optional[OCREngine] = None
         self.app_integrator: Optional[AppIntegrator] = None
         self.output_generator: Optional[OutputGenerator] = None
@@ -128,8 +126,7 @@ class JARVIS:
             self.command_parser = CommandParser(self.config, self.logger)
             self.wake_word_detector = WakeWordDetector(self.config, self.logger)
             self.accessibility_controller = AccessibilityController(self.config, self.logger)
-            self.screenshot_manager = ScreenshotManager(self.config, self.logger)
-            self.ocr_engine = OCREngine(self.config, self.logger)
+            self.ocr_engine = OCREngine(self.config, self.accessibility_controller)
             self.app_integrator = AppIntegrator(self.config, self.logger)
             self.output_generator = OutputGenerator(self.config, self.logger)
             
