@@ -1,0 +1,13 @@
+{
+  "_comment": "Template ONLY. Copy to configs/api_keys.local.json on your phone and fill in real values. NEVER commit real keys to a public repository. Real keys live only in the local (gitignored) file.",
+  "groq": {
+    "api_key": "PUT_YOUR_GROQ_KEY_HERE",
+    "enabled": false,
+    "_note": "Enable only if you later decide to use cloud LLM APIs. The assistant works fully without any LLM API: learning happens through installed apps (ChatGPT, DeepSeek, Chrome, YouTube, Grok etc.) via accessibility."
+  },
+  "siliconflow": {
+    "api_key": "PUT_YOUR_SILICONFLOW_KEY_HERE",
+    "enabled": false,
+    "_note": "Same rule: disabled by default, zero-API design comes first."
+  }
+}
