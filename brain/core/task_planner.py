@@ -268,57 +268,38 @@ class TaskPlanner:
                 "estimated_duration": 60.0
             },
             
-            "take_screenshot": {
-                "intent": "screenshot",
-                "description": "Take a screenshot",
+            "read_screen": {
+                "intent": "read_screen",
+                "description": "Read live screen text via accessibility service",
                 "steps": [
                     {
-                        "action": "capture_screen",
-                        "description": "Capture the screen",
+                        "action": "extract_text",
+                        "description": "Read all visible text from the live screen",
                         "required_apps": [],
                         "required_resources": {"accessibility": 1.0}
-                    },
-                    {
-                        "action": "save_screenshot",
-                        "description": "Save screenshot to storage",
-                        "required_apps": [],
-                        "dependencies": ["capture_screen"]
                     }
                 ],
                 "required_apps": [],
                 "required_resources": {"accessibility": 1.0},
                 "complexity": TaskComplexity.LOW,
-                "estimated_duration": 5.0
+                "estimated_duration": 2.0
             },
             
             "extract_text": {
-                "intent": "ocr",
-                "description": "Extract text from image using OCR",
+                "intent": "extract_text",
+                "description": "Extract text from the live screen via accessibility",
                 "steps": [
                     {
-                        "action": "select_image",
-                        "description": "Select image for OCR",
-                        "required_apps": ["file_manager"],
-                        "parameters": {"file_type": "image"}
-                    },
-                    {
-                        "action": "run_ocr",
-                        "description": "Run OCR on image",
+                        "action": "extract_text",
+                        "description": "Read all visible text from the live screen",
                         "required_apps": [],
-                        "dependencies": ["select_image"],
-                        "required_resources": {"memory": 0.5}
-                    },
-                    {
-                        "action": "return_text",
-                        "description": "Return extracted text",
-                        "required_apps": [],
-                        "dependencies": ["run_ocr"]
+                        "required_resources": {"accessibility": 1.0}
                     }
                 ],
                 "required_apps": [],
-                "required_resources": {"memory": 0.5},
+                "required_resources": {"accessibility": 1.0},
                 "complexity": TaskComplexity.LOW,
-                "estimated_duration": 10.0
+                "estimated_duration": 2.0
             }
         }
     
@@ -486,9 +467,42 @@ class TaskPlanner:
         return resolved
     
     def _resolve_dependencies(self, steps: List[TaskStep], step_map: Dict):
-        """Resolve step dependencies"""
-        # This is a placeholder - in a real implementation, we'd do topological sorting
-        pass
+        """Resolve step dependencies: validate references and order steps topologically"""
+        if not steps:
+            return steps
+
+        # Validate dependency references
+        for step in steps:
+            for dep in step.dependencies:
+                if dep not in step_map:
+                    step.valid = False
+                    step.error = f"Unknown dependency: {dep}"
+
+        # Topological sort (Kahn's algorithm)
+        remaining = {s.id: [d for d in s.dependencies if d in step_map] for s in steps}
+        ordered: List[TaskStep] = []
+        scheduled = set()
+        progress = True
+        while remaining and progress:
+            progress = False
+            for step_id in list(remaining.keys()):
+                if all(dep in scheduled for dep in remaining[step_id]):
+                    scheduled.add(step_id)
+                    ordered.append(step_map[step_id])
+                    del remaining[step_id]
+                    progress = True
+
+        if remaining or len(ordered) != len(steps):
+            # Cycle or inconsistency detected: mark involved steps invalid
+            for step_id in remaining:
+                step_map[step_id].valid = False
+                step_map[step_id].error = "Circular dependency detected"
+            self.logger.warning(f"Circular dependencies among: {list(remaining.keys())}")
+            return steps
+
+        # Re-order the original list in-place to match topological order
+        steps[:] = ordered
+        return steps
     
     def _check_missing_requirements(self, steps: List[TaskStep], 
                                    required_apps: List[str], 
@@ -658,46 +672,23 @@ class TaskPlanner:
             self._step_counter += 3
             required_apps = ["com.chatgpt", "com.deepseek", "com.google.android.youtube", "com.grok"]
             
-        elif intent in ["screenshot", "capture"]:
-            steps.extend([
-                TaskStep(
-                    id=f"step_{self._step_counter}",
-                    action="capture_screen",
-                    description="Capture screenshot",
-                    required_resources={"accessibility": 1.0}
-                ),
-                TaskStep(
-                    id=f"step_{self._step_counter + 1}",
-                    action="save_screenshot",
-                    description="Save screenshot",
-                    dependencies=[steps[-1].id]
-                )
-            ])
-            self._step_counter += 2
+        elif intent in ["screenshot", "capture", "read_screen"]:
+            steps.append(TaskStep(
+                id=f"step_{self._step_counter}",
+                action="extract_text",
+                description="Read live screen text via accessibility",
+                required_resources={"accessibility": 1.0}
+            ))
+            self._step_counter += 1
             
         elif intent in ["ocr", "extract_text"]:
-            steps.extend([
-                TaskStep(
-                    id=f"step_{self._step_counter}",
-                    action="select_image",
-                    description="Select image for OCR",
-                    parameters={"file_type": "image"}
-                ),
-                TaskStep(
-                    id=f"step_{self._step_counter + 1}",
-                    action="run_ocr",
-                    description="Run OCR",
-                    dependencies=[steps[-1].id],
-                    required_resources={"memory": 0.5}
-                ),
-                TaskStep(
-                    id=f"step_{self._step_counter + 2}",
-                    action="return_text",
-                    description="Return extracted text",
-                    dependencies=[steps[-1].id]
-                )
-            ])
-            self._step_counter += 3
+            steps.append(TaskStep(
+                id=f"step_{self._step_counter}",
+                action="extract_text",
+                description="Read live screen text via accessibility",
+                required_resources={"accessibility": 1.0}
+            ))
+            self._step_counter += 1
         else:
             # Generic task
             steps.append(TaskStep(
