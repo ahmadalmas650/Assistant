@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import configuration
-from configs.config import Config
+from configs import Config
 from brain.core.brain_engine import BrainEngine, BrainConfig, BrainState
 from brain.utils.logger import Logger
 from brain.utils.error_handler import ErrorHandler
@@ -480,7 +480,7 @@ class JARVIS:
         print("  clear             - Clear screen")
         print("\nExample Commands:")
         print("  Jarvis, upload video to YouTube")
-        print("  Jarvis, take a screenshot")
+        print("  Jarvis, read my screen")
         print("  Jarvis, search for AI news")
         print("  Jarvis, edit this photo")
         print("  Upload this video")

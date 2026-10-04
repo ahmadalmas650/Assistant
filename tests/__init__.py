@@ -22,7 +22,7 @@ from brain.learning.knowledge_merger import KnowledgeMerger
 from brain.memory.memory_manager import MemoryManager
 from brain.tasks.task_manager import TaskManager
 from brain.tasks.preview_system import PreviewSystem
-from configs.config import Config
+from configs import Config
 from brain.utils.logger import Logger
 
 
@@ -30,14 +30,14 @@ class TestConfig:
     """Test configuration"""
     DEBUG = True
     LOG_LEVEL = "DEBUG"
-    
+
     @classmethod
-    def get_logger(cls, name: str = "test"):
+    def get_logger(cls, name: str = "test") -> "Logger":
         """Get a logger for testing"""
         return Logger(name, debug=cls.DEBUG)
-    
+
     @classmethod
-    def get_config(cls):
+    def get_config(cls) -> "Config":
         """Get a test configuration"""
         config = Config()
         config.brain.debug_mode = True
@@ -52,33 +52,15 @@ def run_async_tests(test_class):
     return runner.run(suite)
 
 
-# Import all test modules
+# Import the test modules that actually exist in this repository
 from .test_brain_engine import *
 from .test_input_processor import *
 from .test_command_parser import *
-from .test_wake_word_detector import *
-from .test_task_manager import *
-from .test_preview_system import *
-from .test_memory_manager import *
-from .test_learning_system import *
-from .test_accessibility import *
-from .test_app_integration import *
-from .test_ocr_engine import *
-from .test_screenshot_manager import *
 
 __all__ = [
     'TestConfig',
     'run_async_tests',
     'TestBrainEngine',
     'TestInputProcessor',
-    'TestCommandParser',
-    'TestWakeWordDetector',
-    'TestTaskManager',
-    'TestPreviewSystem',
-    'TestMemoryManager',
-    'TestLearningSystem',
-    'TestAccessibilityController',
-    'TestAppIntegrator',
-    'TestOCREngine',
-    'TestScreenshotManager'
+    'TestCommandParser'
 ]

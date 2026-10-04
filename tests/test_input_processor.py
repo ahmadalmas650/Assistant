@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from brain.modules.input_processor import InputProcessor, ProcessedInput
-from configs.config import Config
+from configs import Config
 from tests import TestConfig
 
 

@@ -9,11 +9,12 @@ import time
 import os
 import tempfile
 from typing import Dict, List, Optional, Any, Tuple, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..utils.logger import Logger
 from ..utils.error_handler import ErrorHandler
+from .bridge_client import BridgeClient, BridgeError
 
 
 @dataclass
@@ -52,6 +53,13 @@ class InputProcessor:
         self._voice_enabled = True
         self._current_language = "en"
         self._temp_dir = tempfile.mkdtemp(prefix="jarvis_input_")
+        
+        # Bridge APK connection: speech recognition runs inside the APK
+        bridge_cfg = getattr(config, 'bridge', None)
+        self._bridge = BridgeClient(
+            host=getattr(bridge_cfg, 'host', '127.0.0.1'),
+            port=getattr(bridge_cfg, 'port', 8080),
+        )
         
         # State
         self._is_listening = False
@@ -127,64 +135,47 @@ class InputProcessor:
         )
     
     async def _process_voice(self, audio_data: Union[bytes, Path]) -> ProcessedInput:
-        """Process voice input"""
+        """
+        Process voice input via the Bridge APK speech recognizer.
+
+        The Android SpeechRecognizer runs inside the Bridge APK, so
+        recognition is always live and no audio is shipped to the
+        Python side. If raw audio bytes or a path are supplied they
+        are ignored by design (there is no local speech model).
+        """
         start_time = time.time()
-        
-        # Save audio to temp file if needed
-        audio_path = None
-        if isinstance(audio_data, bytes):
-            audio_path = os.path.join(self._temp_dir, f"voice_{int(time.time())}.wav")
-            with open(audio_path, 'wb') as f:
-                f.write(audio_data)
-        elif isinstance(audio_data, Path):
-            audio_path = str(audio_data)
-        
-        self.logger.info(f"Processing voice input: {audio_path}")
-        
-        try:
-            # Simulate speech recognition
-            # In production, this would use a speech recognition library
-            # For Termux, we might use pocketsphinx or a cloud API
-            
-            # Mock implementation
-            await asyncio.sleep(1)  # Simulate processing time
-            
-            # Generate mock transcription
-            text = self._mock_speech_recognition(audio_path)
-            
-            # Clean text
-            cleaned_text = self._clean_text(text)
-            
-            # Calculate confidence (mock value)
-            confidence = 0.95
-            
-            # Extract metadata
-            metadata = {
-                "audio_path": audio_path,
-                "audio_duration": 3.5,  # Mock duration
-                "processing_time": time.time() - start_time,
-                "language": self._current_language
-            }
-            
-            self.logger.info(f"Voice recognized: {cleaned_text[:50]}...")
-            
-            return ProcessedInput(
-                text=cleaned_text,
-                input_type="voice",
-                language=self._current_language,
-                confidence=confidence,
-                raw_data=audio_path,
-                metadata=metadata
+
+        if audio_data is not None:
+            self.logger.info(
+                "Voice recognition runs live in the Bridge APK; "
+                "any supplied audio payload is ignored by design"
             )
-            
-        finally:
-            # Cleanup temp file
-            if audio_path and os.path.exists(audio_path):
-                try:
-                    os.remove(audio_path)
-                except:
-                    pass
-    
+
+        result = await self._bridge.speech_to_text()
+        text = result.get("text", "")
+        confidence = float(result.get("confidence", 0.9))
+
+        if not text:
+            raise ValueError("no speech recognized by the bridge")
+
+        cleaned_text = self._clean_text(text)
+
+        metadata = {
+            "recognition": "bridge_speechrecognizer",
+            "processing_time": time.time() - start_time,
+            "language": self._current_language
+        }
+
+        self.logger.info(f"Voice recognized: {cleaned_text[:50]}...")
+
+        return ProcessedInput(
+            text=cleaned_text,
+            input_type="voice",
+            language=self._current_language,
+            confidence=confidence,
+            metadata=metadata
+        )
+
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text"""
         # Remove extra whitespace
@@ -226,19 +217,7 @@ class InputProcessor:
         # Default to English
         return "en"
     
-    def _mock_speech_recognition(self, audio_path: str) -> str:
-        """Mock speech recognition for testing"""
-        # In a real implementation, this would use a speech recognition API
-        # For now, return a sample transcription
-        
-        # Extract base name for variety
-        base_name = os.path.basename(audio_path).replace('.wav', '')
-        
-        if "voice" in base_name:
-            return "Please upload this video to YouTube and make sure it has a good title and description"
-        else:
-            return "Take a screenshot and extract the text from it"
-    
+
     # Voice Input Methods
     
     async def start_listening(self) -> bool:
@@ -278,42 +257,24 @@ class InputProcessor:
         return True
     
     async def start_recording(self) -> str:
-        """Start recording audio"""
-        if not self._is_listening or self._recording:
-            return ""
-        
-        self._recording = True
-        recording_path = os.path.join(self._temp_dir, f"recording_{int(time.time())}.wav")
-        
-        self.logger.info(f"Started recording: {recording_path}")
-        
-        # In a real implementation, this would start the actual recording
-        # For now, just return the path
-        return recording_path
-    
+        """
+        Audio-file recording is not supported: voice recognition is
+        performed live inside the Bridge APK. Returns an empty path.
+        """
+        self.logger.warning(
+            "start_recording is not supported; voice is recognized "
+            "live by the Bridge APK"
+        )
+        return ""
+
     async def stop_recording(self, recording_path: str = "") -> Optional[bytes]:
-        """Stop recording and return audio data"""
-        if not self._recording:
-            return None
-        
-        self._recording = False
-        
-        if not recording_path:
-            # Find the latest recording
-            files = [f for f in os.listdir(self._temp_dir) if f.endswith('.wav')]
-            if files:
-                files.sort()
-                recording_path = os.path.join(self._temp_dir, files[-1])
-        
-        if os.path.exists(recording_path):
-            with open(recording_path, 'rb') as f:
-                audio_data = f.read()
-            
-            self.logger.info(f"Stopped recording: {len(audio_data)} bytes")
-            return audio_data
-        
+        """Audio-file recording is not supported; returns None."""
+        self.logger.warning(
+            "stop_recording is not supported; voice is recognized "
+            "live by the Bridge APK"
+        )
         return None
-    
+
     def is_listening(self) -> bool:
         """Check if currently listening"""
         return self._is_listening
@@ -388,16 +349,27 @@ class InputProcessor:
     # Continuous Listening
     
     async def start_continuous_listening(self):
-        """Start continuous listening mode"""
+        """Start continuous listening mode (live recognition via bridge)."""
         self._is_listening = True
-        
+        self.logger.info("Continuous listening started")
+
         while self._is_listening:
-            # Simulate continuous listening
-            await asyncio.sleep(0.1)
-            
-            # In a real implementation, this would use a streaming speech recognition API
-            # For now, just wait
-    
+            try:
+                result = await self._bridge.speech_to_text()
+                text = self._clean_text(result.get("text", ""))
+                if text:
+                    for callback in self._on_text_input:
+                        try:
+                            callback(text)
+                        except Exception as e:
+                            self.error_handler.handle_error(e, "text_input_callback")
+            except BridgeError as e:
+                self.logger.warning(f"Bridge unavailable, retrying: {e}")
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                self.error_handler.handle_error(e, "continuous_listening")
+                await asyncio.sleep(1.0)
+
     async def stop_continuous_listening(self):
         """Stop continuous listening mode"""
         self._is_listening = False
@@ -405,7 +377,12 @@ class InputProcessor:
     # Cleanup
     
     async def cleanup(self):
-        """Clean up temporary files"""
+        """Clean up temporary files and close the bridge connection"""
+        try:
+            await self._bridge.close()
+        except Exception as e:
+            self.error_handler.handle_error(e, "bridge_close")
+
         try:
             for file in os.listdir(self._temp_dir):
                 file_path = os.path.join(self._temp_dir, file)

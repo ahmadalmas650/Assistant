@@ -105,21 +105,10 @@ done
 log_info "Installing Python packages..."
 
 PYTHON_PACKAGES=(
-    "fastapi"
-    "uvicorn"
-    "pydantic"
-    "requests"
-    "numpy"
-    "pillow"
-    "opencv-python-headless"
-    "pytesseract"
-    "pydub"
-    "speechrecognition"
-    "pyttsx3"
-    "python-multipart"
-    "python-dotenv"
-    "loguru"
+    "cryptography"
     "psutil"
+    "pytest"
+    "pytest-asyncio"
 )
 
 for pip_pkg in "${PYTHON_PACKAGES[@]}"; do

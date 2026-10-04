@@ -547,11 +547,12 @@ class InformationComparator:
             # Calculate completeness
             completeness = self._calculate_completeness(str_info)
             
-            # Calculate confidence (mock value - would be from source)
-            confidence = 0.8
-            
-            # Calculate accuracy (placeholder)
-            accuracy = 0.7
+            # Confidence and accuracy are derived from the measured
+            # relevance and completeness of the content. There is no
+            # external ground truth on-device, so accuracy is reported
+            # as completeness (how well the content covers the query).
+            confidence = round((relevance + completeness) / 2.0, 3)
+            accuracy = round(completeness, 3)
             
             qualities[source_id] = InformationQuality(
                 source=source_id,

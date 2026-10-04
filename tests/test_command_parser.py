@@ -6,7 +6,7 @@ import unittest
 import asyncio
 
 from brain.modules.command_parser import CommandParser, ParsedCommand, IntentType, EntityType
-from configs.config import Config
+from configs import Config
 from tests import TestConfig
 
 

@@ -10,7 +10,7 @@ from typing import Dict, Any
 from brain.core.brain_engine import BrainEngine, BrainConfig, BrainState, BrainMode
 from brain.modules.input_processor import InputProcessor, ProcessedInput
 from brain.modules.command_parser import CommandParser, ParsedCommand
-from configs.config import Config
+from configs import Config
 from tests import TestConfig
 
 

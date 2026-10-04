@@ -240,6 +240,42 @@ class BridgeClient:
     async def notification_info(self) -> Dict[str, Any]:
         return await self.call("notification_info")
 
+    async def speech_to_text(self, timeout_s: float = 10.0,
+                             language: str = "en-US") -> Dict[str, Any]:
+        """Recognize one utterance via the Bridge APK (SpeechRecognizer).
+
+        Returns {"text": str, "confidence": float}. Recognition runs
+        inside the APK; no audio is shipped to the Python side.
+        """
+        result = await self.call(
+            "speech_to_text",
+            {"timeout": float(timeout_s), "language": str(language)},
+        )
+        if isinstance(result, dict):
+            return {
+                "text": str(result.get("text", "")),
+                "confidence": float(result.get("confidence", 0.0)),
+            }
+        return {"text": "", "confidence": 0.0}
+
+    async def listen_wake_word(self, wake_word: str = "jarvis",
+                               timeout_s: float = 30.0) -> Dict[str, Any]:
+        """Listen for the wake word via the Bridge APK.
+
+        Blocks for up to timeout_s seconds and returns
+        {"detected": bool, "confidence": float}.
+        """
+        result = await self.call(
+            "listen_wake_word",
+            {"wake_word": str(wake_word), "timeout": float(timeout_s)},
+        )
+        if isinstance(result, dict):
+            return {
+                "detected": bool(result.get("detected")),
+                "confidence": float(result.get("confidence", 0.0)),
+            }
+        return {"detected": False, "confidence": 0.0}
+
     async def cleanup(self) -> None:
         await self.close()
 

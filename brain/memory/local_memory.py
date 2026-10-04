@@ -405,7 +405,7 @@ class LocalMemory:
             # Try to parse as JSON
             try:
                 return json.loads(row["value"])
-            except:
+            except (ValueError, TypeError):
                 return row["value"]
             
         except Exception as e:
@@ -427,7 +427,7 @@ class LocalMemory:
             for row in rows:
                 try:
                     preferences[row["key"]] = json.loads(row["value"])
-                except:
+                except (ValueError, TypeError):
                     preferences[row["key"]] = row["value"]
             
             return preferences

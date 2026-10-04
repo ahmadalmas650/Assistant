@@ -24,7 +24,7 @@ class SourceType(Enum):
     DATABASE = auto()
     FILE = auto()
     USER_INPUT = auto()
-    SCREENSHOT = auto()
+    LIVE_SCREEN = auto()
     VOICE = auto()
     API = auto()
     UNKNOWN = auto()
@@ -410,15 +410,25 @@ class MultiSourceLearner:
             }
     
     async def _learn_from_generic(self, source_id: str, query: str) -> Dict:
-        """Learn from a generic source"""
-        # Mock implementation for generic sources
+        """
+        Learn from a generic (non AI / non web) source.
+
+        There is no automated flow for generic sources yet: the
+        learner only knows how to drive AI assistant apps and web
+        apps through the app integrator. Instead of inventing a
+        response, fail honestly so the caller can pick a source
+        that has a real flow.
+        """
         return {
-            "success": True,
-            "response": f"Information about {query} from {source_id}",
-            "confidence": 0.7,
+            "success": False,
+            "error": (
+                f"No automated learning flow exists for generic source "
+                f"'{source_id}'; supported flows are AI assistant apps "
+                f"and web apps"
+            ),
             "source": source_id
         }
-    
+
     async def learn_from_multiple_sources(self, query: str, 
                                            source_ids: List[str] = None) -> Dict[str, Dict]:
         """

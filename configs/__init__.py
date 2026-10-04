@@ -79,8 +79,7 @@ class AppConfig:
 class AccessibilityConfig:
     """Accessibility configuration"""
     enabled: bool = True
-    screenshot_enabled: bool = True
-    ocr_enabled: bool = True
+    live_screen_reading: bool = True
     full_control: bool = True
     privacy_filter: bool = True
 
@@ -163,8 +162,7 @@ class FeaturesConfig:
     live_control: bool = True
     background_execution: bool = True
     multi_source_learning: bool = True
-    screenshot: bool = True
-    ocr: bool = True
+    read_screen: bool = True
     app_integration: bool = True
     accessibility_control: bool = True
     cloud_sync: bool = True
@@ -443,8 +441,7 @@ class Config:
             },
             "accessibility": {
                 "enabled": self.accessibility.enabled,
-                "screenshot_enabled": self.accessibility.screenshot_enabled,
-                "ocr_enabled": self.accessibility.ocr_enabled,
+                "live_screen_reading": self.accessibility.live_screen_reading,
                 "full_control": self.accessibility.full_control,
                 "privacy_filter": self.accessibility.privacy_filter
             },
@@ -493,8 +490,7 @@ class Config:
                 "live_control": self.features.live_control,
                 "background_execution": self.features.background_execution,
                 "multi_source_learning": self.features.multi_source_learning,
-                "screenshot": self.features.screenshot,
-                "ocr": self.features.ocr,
+                "read_screen": self.features.read_screen,
                 "app_integration": self.features.app_integration,
                 "accessibility_control": self.features.accessibility_control,
                 "cloud_sync": self.features.cloud_sync,
