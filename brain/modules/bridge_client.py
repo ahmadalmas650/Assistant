@@ -276,6 +276,17 @@ class BridgeClient:
             }
         return {"detected": False, "confidence": 0.0}
 
+    async def is_app_installed(self, package: str) -> bool:
+        """Check on the device (PackageManager) whether an app is installed.
+
+        Returns True/False from the bridge; raises BridgeError if the
+        bridge reports an error or is unreachable.
+        """
+        result = await self.call("is_app_installed", {"package": str(package)})
+        if isinstance(result, dict):
+            return bool(result.get("installed"))
+        return False
+
     async def cleanup(self) -> None:
         await self.close()
 

@@ -278,7 +278,7 @@ class MultiSourceLearner:
         if source.source_type == SourceType.AI_ASSISTANT:
             package_map = {
                 "chatgpt": "com.chatgpt",
-                "deepseek": "com.deepseek",
+                "deepseek": "com.deepseek.app",
                 "grok": "com.grok"
             }
             package = package_map.get(source_id)
@@ -347,7 +347,7 @@ class MultiSourceLearner:
         # Map source IDs to package names
         package_map = {
             "chatgpt": "com.chatgpt",
-            "deepseek": "com.deepseek",
+            "deepseek": "com.deepseek.app",
             "grok": "com.grok"
         }
         
