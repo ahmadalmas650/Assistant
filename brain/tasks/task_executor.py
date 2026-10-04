@@ -69,8 +69,7 @@ class StepResult:
         return {
             "step_id": self.step_id,
             "action": self.action,
-        
-    "status": self.status.name,
+            "status": self.status.name,
             "output": self.output,
             "error": self.error,
             "start_time": self.start_time,
@@ -121,15 +120,13 @@ class TaskExecutor:
         # Editing operations
         self.register_handler("edit_photo", self._handle_edit_photo)
         self.register_handler("edit_video", self._handle_edit_video)
-        self.
-register_handler("create_thumbnail", self._handle_create_thumbnail)
+        self.register_handler("create_thumbnail", self._handle_create_thumbnail)
         
         # Upload operations
         self.register_handler("upload", self._handle_upload)
         self.register_handler("verify_upload", self._handle_verify_upload)
         
         
-        # OCR operations
         self.register_handler("extract_text", self._handle_extract_text)
         
         # Search operations
@@ -169,8 +166,7 @@ register_handler("create_thumbnail", self._handle_create_thumbnail)
                 step=step
             )
         
-        self.logger.debug(f"Exe
-cuting step: {step.id} ({step.action})")
+        self.logger.debug(f"Executing step: {step.id} ({step.action})")
         
         try:
             # Get handler
@@ -220,8 +216,7 @@ cuting step: {step.id} ({step.action})")
                 execution_time=end_time - start_time,
                 retry_count=step.retry_count
             )
-         
-   
+            
         except Exception as e:
             end_time = time.time()
             
@@ -276,8 +271,7 @@ cuting step: {step.id} ({step.action})")
         else:
             raise Exception(f"Failed to select {file_type} file")
     
-    as
-ync def _handle_open_file(self, step: TaskStep, context: ExecutionContext) -> Dict:
+    async def _handle_open_file(self, step: TaskStep, context: ExecutionContext) -> Dict:
         """Handle opening a file"""
         file_path = step.parameters.get("file_path")
         app = step.parameters.get("app")
@@ -329,8 +323,7 @@ ync def _handle_open_file(self, step: TaskStep, context: ExecutionContext) -> Di
             raise Exception(f"Failed to save file: {file_path}")
     
     async def _handle_open_app(self, step: TaskStep, context: ExecutionContext) -> Dict:
-        
-"""Handle opening an app"""
+        """Handle opening an app"""
         app = step.parameters.get("app")
         
         if not app:
@@ -390,8 +383,7 @@ ync def _handle_open_file(self, step: TaskStep, context: ExecutionContext) -> Di
                 "status": "completed"
             }
         else:
-      
-      raise Exception(f"Failed to use app: {app}")
+            raise Exception(f"Failed to use app: {app}")
     
     async def _handle_edit_photo(self, step: TaskStep, context: ExecutionContext) -> Dict:
         """Handle photo editing"""
@@ -440,8 +432,7 @@ ync def _handle_open_file(self, step: TaskStep, context: ExecutionContext) -> Di
                 "file_path": file_path,
                 "app": app,
                 "status": "edited",
-                "edited_path": result.get("edited_pa
-th")
+                "edited_path": result.get("edited_path")
             }
         else:
             raise Exception(f"Failed to edit video: {file_path}")
@@ -492,8 +483,7 @@ th")
                 "status": "uploaded"
             }
         else:
-            raise Exception(f"Failed to upload to {platfo
-rm}: {file_path}")
+            raise Exception(f"Failed to upload to {platform}: {file_path}")
     
     async def _handle_verify_upload(self, step: TaskStep, context: ExecutionContext) -> Dict:
         """Handle upload verification"""
@@ -521,10 +511,12 @@ rm}: {file_path}")
             raise Exception(f"Failed to verify upload: {upload_id}")
     
     async def _handle_extract_text(self, step: TaskStep, context: ExecutionContext) -> Dict:
-        """Handle text extraction"""
+        """Handle text extraction (live accessibility, no screenshot)"""
         ocr_result = await self.ocr_engine.extract_text_from_screen()
+
         result = ocr_result.to_dict()
         result["success"] = ocr_result.ok
+        source = "live_screen"
         
         if result.get("success", False):
             return {
@@ -578,7 +570,6 @@ rm}: {file_path}")
     async def _handle_merge_results(self, step: TaskStep, context: ExecutionContext) -> Dict:
         """Handle merging results"""
         results = []
-
         for dep_id in step.dependencies:
             if dep_id in context.previous_results:
                 dep_result = context.previous_results[dep_id]
@@ -635,7 +626,6 @@ rm}: {file_path}")
         
         for item in check_items:
             if item in ["title", "description"]:
-
                 present.append(item)
             else:
                 missing.append(item)
@@ -692,8 +682,7 @@ rm}: {file_path}")
         """Handle file deletion"""
         file_path = step.parameters.get("file_path")
         
-        
-if not file_path:
+        if not file_path:
             for dep_id in step.dependencies:
                 if dep_id in context.previous_results:
                     file_path = context.previous_results[dep_id].get("file_path")
