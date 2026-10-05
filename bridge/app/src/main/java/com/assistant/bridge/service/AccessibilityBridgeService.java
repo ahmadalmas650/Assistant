@@ -3,6 +3,10 @@ package com.assistant.bridge.service;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.GestureDescription;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -17,6 +21,7 @@ import android.view.WindowManager;
 
 import androidx.annotation.RequiresApi;
 
+import com.assistant.bridge.MainActivity;
 import com.assistant.bridge.utils.BridgeConstants;
 
 import java.util.ArrayList;
@@ -598,28 +603,278 @@ public class AccessibilityBridgeService extends AccessibilityService {
     }
     
     /**
-     * Take screenshot (requires Android 5.0+)
+     * Collect all visible text from the active window as a live screen
+     * reading (accessibility nodes, no screenshots, no OCR).
      */
-    public boolean takeScreenshot() {
+    public String collectVisibleText() {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            return "{\"ok\":false,\"error\":\"no active window\"}";
+        }
+        StringBuilder sb = new StringBuilder();
         try {
-            AccessibilityNodeInfo rootNode = getRootInActiveWindow();
-            if (rootNode != null) {
-                try {
-                    // This is a simplified implementation
-                    // In practice, we'd use MediaProjection or other methods
-                    Log.d(TAG, "Screenshot requested");
-                    return true;
-                } finally {
-                    rootNode.recycle();
+            collectText(rootNode, sb);
+        } finally {
+            rootNode.recycle();
+        }
+        return "{\"ok\":true,\"text\":" + json(sb.toString()) + "}";
+    }
+
+    private void collectText(AccessibilityNodeInfo node, StringBuilder sb) {
+        if (node == null) {
+            return;
+        }
+        try {
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(text.toString());
+            }
+            CharSequence desc = node.getContentDescription();
+            if (desc != null && desc.length() > 0) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(desc.toString());
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) {
+                    collectText(child, sb);
+                    child.recycle();
                 }
             }
-            return false;
         } catch (Exception e) {
-            Log.e(TAG, "Error taking screenshot", e);
-            return false;
+            Log.e(TAG, "Error collecting text", e);
         }
     }
-    
+
+    /**
+     * Collect visible nodes as JSON (bounded by maxNodes so a huge tree
+     * never floods the RPC channel).
+     */
+    public String collectNodesJson(int maxNodes) {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            return "{\"ok\":false,\"error\":\"no active window\"}";
+        }
+        int limit = maxNodes <= 0 ? 200 : Math.min(maxNodes, 1000);
+        StringBuilder sb = new StringBuilder("[");
+        try {
+            appendNodeJson(rootNode, sb, limit, new int[]{0});
+        } finally {
+            rootNode.recycle();
+        }
+        sb.append(']');
+        return "{\"ok\":true,\"nodes\":" + sb.toString() + "}";
+    }
+
+    private void appendNodeJson(AccessibilityNodeInfo node, StringBuilder sb, int limit, int[] count) {
+        if (node == null || count[0] >= limit) {
+            return;
+        }
+        count[0]++;
+        if (count[0] > 1) {
+            sb.append(',');
+        }
+        sb.append("{\"text\":").append(json(getText(node)))
+          .append(",\"id\":").append(json(node.getViewIdResourceName()))
+          .append(",\"class\":").append(json(node.getClassName() == null ? "" : node.getClassName().toString()))
+          .append(",\"bounds\":\"").append(node.getBoundsInScreen().toString()).append('"')
+          .append(",\"clickable\":").append(node.isClickable())
+          .append(",\"scrollable\":").append(node.isScrollable())
+          .append(",\"editable\":").append(node.isEditable())
+          .append('}');
+        for (int i = 0; i < node.getChildCount() && count[0] < limit; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                appendNodeJson(child, sb, limit, count);
+                child.recycle();
+            }
+        }
+    }
+
+    /**
+     * Click the first node whose text or content description contains the
+     * given text. Returns a JSON result; never throws.
+     */
+    public String clickByText(String text) {
+        if (text == null || text.isEmpty()) {
+            return "{\"ok\":false,\"error\":\"no text given\"}";
+        }
+        AccessibilityNodeInfo node = findNodeByText(text);
+        if (node == null) {
+            return "{\"ok\":false,\"error\":\"no node found with text: " + text + "\"}";
+        }
+        boolean clicked = performClick(node);
+        node.recycle();
+        return clicked ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"node not clickable: " + text + "\"}";
+    }
+
+    /**
+     * Click the node with the given view id resource name.
+     */
+    public String clickById(String viewId) {
+        if (viewId == null || viewId.isEmpty()) {
+            return "{\"ok\":false,\"error\":\"no view id given\"}";
+        }
+        AccessibilityNodeInfo node = findNodeById(viewId);
+        if (node == null) {
+            return "{\"ok\":false,\"error\":\"no node found with id: " + viewId + "\"}";
+        }
+        boolean clicked = performClick(node);
+        node.recycle();
+        return clicked ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"node not clickable: " + viewId + "\"}";
+    }
+
+    /**
+     * Click at absolute screen coordinates using a gesture.
+     */
+    public String clickAt(int x, int y) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return "{\"ok\":false,\"error\":\"gesture clicks need Android 7.0+\"}";
+        }
+        return performClick(x, y)
+                ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"gesture dispatch failed\"}";
+    }
+
+    /**
+     * Swipe gesture between two screen points.
+     */
+    public String swipe(int startX, int startY, int endX, int endY, int durationMs) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return "{\"ok\":false,\"error\":\"gestures need Android 7.0+\"}";
+        }
+        try {
+            Path path = new Path();
+            path.moveTo(startX, startY);
+            path.lineTo(endX, endY);
+            GestureDescription.Builder builder = new GestureDescription.Builder();
+            builder.addStroke(new GestureDescription.StrokeDescription(
+                    path, 0, Math.max(50, durationMs)));
+            boolean dispatched = dispatchGesture(builder.build(), null, null);
+            return dispatched ? "{\"ok\":true}"
+                    : "{\"ok\":false,\"error\":\"gesture dispatch failed\"}";
+        } catch (Exception e) {
+            Log.e(TAG, "Error swiping", e);
+            return "{\"ok\":false,\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
+    /**
+     * Global navigation actions.
+     */
+    public String pressBack() {
+        return performGlobalAction(GLOBAL_ACTION_BACK)
+                ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"back failed\"}";
+    }
+
+    public String pressHome() {
+        return performGlobalAction(GLOBAL_ACTION_HOME)
+                ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"home failed\"}";
+    }
+
+    public String pressRecents() {
+        return performGlobalAction(GLOBAL_ACTION_RECENTS)
+                ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"recents failed\"}";
+    }
+
+    /**
+     * Type text into the focused or first editable field on screen.
+     */
+    public String inputTextIntoField(String text) {
+        if (text == null || text.isEmpty()) {
+            return "{\"ok\":false,\"error\":\"no text given\"}";
+        }
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) {
+            return "{\"ok\":false,\"error\":\"no active window\"}";
+        }
+        try {
+            AccessibilityNodeInfo field = findEditableField(root);
+            if (field == null) {
+                return "{\"ok\":false,\"error\":\"no editable field on screen\"}";
+            }
+            boolean set = setText(field, text);
+            field.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            field.recycle();
+            return set ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"could not set text\"}";
+        } finally {
+            root.recycle();
+        }
+    }
+
+    private AccessibilityNodeInfo findEditableField(AccessibilityNodeInfo root) {
+        if (root.isEditable()) {
+            return root;
+        }
+        for (int i = 0; i < root.getChildCount(); i++) {
+            AccessibilityNodeInfo child = root.getChild(i);
+            if (child == null) {
+                continue;
+            }
+            AccessibilityNodeInfo found = findEditableField(child);
+            if (found != null) {
+                if (found != child) {
+                    child.recycle();
+                }
+                return found;
+            }
+            child.recycle();
+        }
+        return null;
+    }
+
+    /**
+     * Get the default launcher package (used by the human-style app
+     * launching flow; never used to launch apps directly).
+     */
+    public String getLauncherPackage() {
+        try {
+            Intent home = new Intent(Intent.ACTION_MAIN);
+            home.addCategory(Intent.CATEGORY_HOME);
+            PackageManager pm = getPackageManager();
+            ResolveInfo info = pm.resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY);
+            if (info != null && info.activityInfo != null) {
+                return info.activityInfo.packageName;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error resolving launcher", e);
+        }
+        return "";
+    }
+
+    /**
+     * JSON string escaper shared across bridge service classes.
+     */
+    public static String json(String s) {
+        if (s == null) {
+            return "\"\"";
+        }
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        sb.append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n");  break;
+                case '\r': sb.append("\\r");  break;
+                case '\t': sb.append("\\t");  break;
+                default:
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        sb.append('"');
+        return sb.toString();
+    }
+
     // Callback interfaces
     
     public interface AccessibilityEventCallback {
@@ -655,3 +910,4 @@ public class AccessibilityBridgeService extends AccessibilityService {
         nodeInfoCallbacks.remove(callback);
     }
 }
+

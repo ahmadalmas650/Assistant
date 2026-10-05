@@ -5,6 +5,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.provider.Settings;
@@ -16,6 +19,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.assistant.bridge.service.AccessibilityBridgeService;
 import com.assistant.bridge.service.BridgeForegroundService;
@@ -46,6 +51,10 @@ public class MainActivity extends AppCompatActivity {
         
         // Initialize views
         initializeViews();
+        
+        // Runtime permissions required for voice (STT/TTS) and the
+        // foreground-service notification on Android 13+
+        ensureRuntimePermissions();
         
         // Update status
         updateStatus();
@@ -167,52 +176,73 @@ public class MainActivity extends AppCompatActivity {
     }
     
     /**
+     * Request the runtime permissions the bridge needs: microphone for
+     * STT/wake word, notifications for the foreground service on 13+.
+     */
+    private void ensureRuntimePermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+                || (Build.VERSION.SDK_INT >= 33
+                        && ContextCompat.checkSelfPermission(this,
+                                "android.permission.POST_NOTIFICATIONS")
+                                != PackageManager.PERMISSION_GRANTED)) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.RECORD_AUDIO,
+                            "android.permission.POST_NOTIFICATIONS"},
+                    1001);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1001) {
+            boolean micGranted = false;
+            for (int i = 0; i < permissions.length; i++) {
+                if (Manifest.permission.RECORD_AUDIO.equals(permissions[i])
+                        && i < grantResults.length && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    micGranted = true;
+                }
+            }
+            if (!micGranted) {
+                Toast.makeText(this, "Microphone permission is required for voice control",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    /**
      * Test Python connection
      */
     private void testPythonConnection() {
         Log.d(TAG, "Testing Python connection");
-        
+
         new Thread(() -> {
-            try {
-                // In a real implementation, this would test the connection
-                // to the Python server running in Termux
-                
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Python connection test: OK", Toast.LENGTH_SHORT).show();
-                });
-                
+            // Real check: connect to the bridge's own JSON-RPC server and
+            // send a ping; the Python brain in Termux talks to this same port.
+            String result;
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress("127.0.0.1",
+                        com.assistant.bridge.utils.BridgeConstants.BRIDGE_PORT), 2000);
+                socket.setSoTimeout(2000);
+                socket.getOutputStream().write(
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{}}\n"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                socket.getOutputStream().flush();
+                byte[] buf = new byte[1024];
+                int n = socket.getInputStream().read(buf);
+                String response = n > 0 ? new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8).trim() : "";
+                result = response.contains("\"ok\":true")
+                        ? "Bridge RPC server reachable: " + response
+                        : "Unexpected RPC response: " + response;
             } catch (Exception e) {
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Connection failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+                result = "Connection failed: " + e.getMessage();
             }
+            final String message = result;
+            runOnUiThread(() ->
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show());
         }).start();
     }
-    
-    /**
-     * Open accessibility settings
-     */
-    private void openAccessibilitySettings() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            startActivity(intent);
-        } catch (Exception e) {
-            Log.e(TAG, "Error opening accessibility settings", e);
-        }
-    }
-    
-    /**
-     * Check if accessibility service is running
-     */
-    private boolean isAccessibilityServiceRunning() {
-        AccessibilityManager am = (AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
-        if (am != null) {
-            for (AccessibilityManager.AccessibilityServiceInfo service : am.getEnabledAccessibilityServiceList(0)) {
-                if (service.getId().contains(AccessibilityBridgeService.class.getName())) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 }
+
