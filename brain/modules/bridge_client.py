@@ -222,7 +222,7 @@ class BridgeClient:
         return await self.call("swipe", {
             "start_x": int(start_x), "start_y": int(start_y),
             "end_x": int(end_x), "end_y": int(end_y),
-            "duration": int(duration_ms),
+            "duration_ms": int(duration_ms),
         })
 
     async def press_back(self) -> Dict[str, Any]:
@@ -249,7 +249,7 @@ class BridgeClient:
         """
         result = await self.call(
             "speech_to_text",
-            {"timeout": float(timeout_s), "language": str(language)},
+            {"timeout_s": float(timeout_s), "language": str(language)},
         )
         if isinstance(result, dict):
             return {
@@ -267,7 +267,7 @@ class BridgeClient:
         """
         result = await self.call(
             "listen_wake_word",
-            {"wake_word": str(wake_word), "timeout": float(timeout_s)},
+            {"wake_word": str(wake_word), "timeout_s": float(timeout_s)},
         )
         if isinstance(result, dict):
             return {
@@ -287,8 +287,81 @@ class BridgeClient:
             return bool(result.get("installed"))
         return False
 
+    async def launch_app_by_name(self, name: str) -> Dict[str, Any]:
+        """Launch an app by its visible name the way a human does.
+
+        The bridge goes to the home screen, opens the launcher search,
+        types the name and clicks the icon; package names are never used.
+        """
+        return await self.call("launch_app_by_name", {"name": str(name)})
+
+    # ------------------------------------------------------------------
+    # Voice session model: wake word -> live command -> execute keyword.
+    # The microphone stays on from the wake word until the user says an
+    # execute keyword ("execute kro", "chala do", ...) or stt_finish /
+    # stt_cancel is called. stt_status returns the live word-by-word
+    # preview; stt_set_text replaces the recognized text (edit support).
+    # ------------------------------------------------------------------
+
+    async def stt_start_wake(self, wake_word: str = "jarvis",
+                             language: str = "ur-PK") -> Dict[str, Any]:
+        """Start continuous wake-word listening (microphone stays on)."""
+        return await self.call(
+            "stt_start_wake",
+            {"wake_word": str(wake_word), "language": str(language)},
+        )
+
+    async def stt_start_command(self, language: str = "ur-PK") -> Dict[str, Any]:
+        """Skip the wake phase and capture a command directly."""
+        return await self.call("stt_start_command", {"language": str(language)})
+
+    async def stt_status(self) -> Dict[str, Any]:
+        """Live session status with the word-by-word command preview."""
+        result = await self.call("stt_status")
+        if isinstance(result, dict):
+            return {
+                "state": str(result.get("state", "idle")),
+                "text": str(result.get("text", "")),
+                "error": str(result.get("error", "")),
+            }
+        return {"state": "idle", "text": "", "error": "invalid status payload"}
+
+    async def stt_set_text(self, text: str) -> Dict[str, Any]:
+        """Replace the accumulated command text (edit support)."""
+        return await self.call("stt_set_text", {"text": str(text)})
+
+    async def stt_finish(self) -> str:
+        """Finish the session: microphone off, returns the final text."""
+        result = await self.call("stt_finish")
+        if isinstance(result, dict):
+            return str(result.get("text", ""))
+        return ""
+
+    async def stt_cancel(self) -> Dict[str, Any]:
+        """Cancel the session: microphone off, text discarded."""
+        return await self.call("stt_cancel")
+
+    # Streaming TTS: the APK queues the first sentence immediately and
+    # appends the remaining ones, so playback starts right away.
+
+    async def tts_speak(self, text: str, language: str = "ur-PK") -> Dict[str, Any]:
+        """Stream text to the APK speaker (sentence-level streaming)."""
+        return await self.call(
+            "tts_speak", {"text": str(text), "language": str(language)},
+        )
+
+    async def tts_stop(self) -> Dict[str, Any]:
+        """Stop the current TTS playback."""
+        return await self.call("tts_stop")
+
+    async def tts_status(self) -> Dict[str, Any]:
+        """TTS playback status."""
+        result = await self.call("tts_status")
+        return result if isinstance(result, dict) else {"ok": False}
+
     async def cleanup(self) -> None:
         await self.close()
 
 
 __all__ = ["BridgeClient", "BridgeError", "BridgeNotConnectedError"]
+

@@ -79,6 +79,7 @@ class JARVIS:
         
         # Event tracking
         self._shutdown_requested = False
+        self._voice_sessions_enabled = False
         
         self.logger.info("JARVIS initialized")
     
@@ -323,6 +324,71 @@ class JARVIS:
             return False
         return await self.input_processor.stop_listening()
     
+    # Hands-free voice session: wake word -> live command (mic stays on,
+    # word-by-word preview) -> execute keyword -> mic off -> speak answer.
+    
+    async def start_voice_sessions(self) -> bool:
+        """Enable hands-free wake-word voice sessions."""
+        if not self.wake_word_detector or not self.input_processor:
+            self.logger.warning("Voice modules unavailable; hands-free mode off")
+            return False
+        self._voice_sessions_enabled = True
+        self.wake_word_detector.on_detection(self._on_wake_word_detected)
+        self.wake_word_detector.start()
+        self.logger.info(
+            f"Hands-free voice sessions enabled (say '{self.wake_word_detector.get_wake_word()}')")
+        return True
+    
+    def _on_wake_word_detected(self, detection):
+        """Wake word heard (called from the detector thread)."""
+        self.logger.info("Wake word detected; capturing command")
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(
+                asyncio.ensure_future, self._capture_and_execute_command())
+    
+    async def _capture_and_execute_command(self):
+        """Command phase: poll the live preview until the execute keyword."""
+        try:
+            processed = await self.input_processor.wait_for_command(timeout_s=90.0)
+            command = (processed.text or "").strip()
+            if not command:
+                self.logger.info("Empty command; back to wake listening")
+                return
+            self.logger.info(f"Voice command: {command}")
+            result = await self.process_command(command, "voice")
+            response = self._extract_response_text(result)
+            if response:
+                # Streaming Urdu TTS: the first sentence starts at once
+                await self.output_generator.speak(response, "ur-PK")
+        except ValueError as e:
+            self.logger.warning(f"Voice session ended: {e}")
+        except Exception as e:
+            self.error_handler.handle_error(e, "voice_command")
+        finally:
+            # Restart the wake phase for the next session
+            if self._voice_sessions_enabled and not self._shutdown_requested:
+                if self.wake_word_detector and not self.wake_word_detector.is_running():
+                    self.wake_word_detector.start()
+    
+    def _extract_response_text(self, result: Dict) -> str:
+        """Best-effort extraction of the spoken response from a result."""
+        if not isinstance(result, dict):
+            return ""
+        for key in ("response", "message", "text", "final_output"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, dict):
+                for sub in ("response", "message", "text", "output"):
+                    sub_value = value.get(sub)
+                    if isinstance(sub_value, str) and sub_value.strip():
+                        return sub_value.strip()
+        return ""
+    
     async def shutdown(self):
         """Shutdown JARVIS gracefully"""
         if self._shutdown_requested:
@@ -335,6 +401,17 @@ class JARVIS:
             # Stop listening
             if self.input_processor:
                 await self.input_processor.stop_listening()
+                # Turn the microphone off and discard any open session
+                await self.input_processor.cancel_session()
+            
+            # Stop wake word detection
+            self._voice_sessions_enabled = False
+            if self.wake_word_detector:
+                self.wake_word_detector.stop()
+            
+            # Stop any ongoing speech
+            if self.output_generator:
+                await self.output_generator.stop_speaking()
             
             # Stop current tasks
             if self.brain:
@@ -370,6 +447,13 @@ class JARVIS:
         
         self.logger.info("JARVIS is ready!")
         self.logger.info("Type 'help' for available commands")
+        
+        # Hands-free voice sessions (wake word -> command -> execute);
+        # falls back to text-only if the bridge is unavailable.
+        try:
+            await self.start_voice_sessions()
+        except Exception as e:
+            self.logger.warning(f"Voice sessions unavailable: {e}")
         
         # Start interactive mode
         await self._run_interactive()

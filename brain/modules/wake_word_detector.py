@@ -78,6 +78,9 @@ class WakeWordDetector:
             port=getattr(bridge_cfg, 'port', 8080),
         )
         self._listen_timeout = 10.0  # per-iteration listening window
+        # Recognition language for the APK SpeechRecognizer (Urdu first)
+        voice_cfg = getattr(config, 'voice', None)
+        self._language = getattr(voice_cfg, 'language', 'ur-PK')
 
         # State
         self._state = DetectionState.IDLE
@@ -173,29 +176,66 @@ class WakeWordDetector:
         return self._state
 
     def _detection_loop(self):
-        """Main detection loop: ask the bridge whether the wake word was heard."""
+        """Session-model detection loop.
+
+        The bridge turns the microphone ON with stt_start_wake and keeps
+        it on. When the wake word is heard, the APK itself switches to
+        live command capture (state 'command'); this loop only polls the
+        session status and fires the registered callbacks on the
+        wake->command transition. The microphone is NOT turned off here:
+        the command session continues in the InputProcessor.
+        """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        session_started = False
         try:
             while self._is_running and not self._stop_event.is_set():
                 try:
-                    result = loop.run_until_complete(
-                        self._bridge.listen_wake_word(self.wake_word, self._listen_timeout)
-                    )
-                    if result.get("detected"):
+                    if not session_started:
+                        result = loop.run_until_complete(
+                            self._bridge.stt_start_wake(self.wake_word, self._language)
+                        )
+                        if isinstance(result, dict) and result.get("ok", False) is False \
+                                and result.get("error"):
+                            # Honest failure (e.g. mic permission missing)
+                            if "permission" in str(result.get("error")).lower():
+                                self.logger.error(
+                                    f"Bridge reported: {result.get('error')}")
+                                break
+                        session_started = True
+                        self.logger.info(
+                            "Wake word session started (microphone ON)")
+                    status = loop.run_until_complete(self._bridge.stt_status())
+                    state = str(status.get("state", "idle"))
+                    if state == "command":
+                        # Wake word heard: the APK already began live
+                        # command capture with the microphone still on.
                         detection = DetectionResult(
                             detected=True,
                             wake_word=self.wake_word,
-                            confidence=result.get("confidence", 0.99),
+                            confidence=1.0,
                             timestamp=time.time()
                         )
                         if detection.confidence >= self._confidence_threshold:
                             self._handle_detection(detection)
+                        # The detection thread ends here; mark stopped so
+                        # the next session can be started cleanly.
+                        self._is_running = False
+                        return
+                    if state == "error":
+                        self.logger.error(
+                            f"Voice session error: {status.get('error')}")
+                        session_started = False
+                        self._stop_event.wait(2.0)
+                    else:
+                        self._stop_event.wait(0.25)
                 except BridgeError as e:
                     self.logger.warning(f"Bridge unavailable for wake word listening: {e}")
+                    session_started = False
                     self._stop_event.wait(2.0)
                 except Exception as e:
                     self.error_handler.handle_error(e, "detection_loop")
+                    session_started = False
                     self._stop_event.wait(1.0)
         finally:
             try:
@@ -294,3 +334,4 @@ class WakeWordDetector:
             loop.close()
         except Exception as e:
             self.error_handler.handle_error(e, "wake_word_cleanup")
+

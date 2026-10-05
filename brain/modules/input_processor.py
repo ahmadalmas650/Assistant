@@ -220,6 +220,127 @@ class InputProcessor:
 
     # Voice Input Methods
     
+    # Live voice session (wake word -> command -> execute keyword).
+    # The microphone stays on from the wake word until the user says an
+    # execute keyword; the preview below updates word-by-word and can
+    # be corrected with edit_session_text before execution.
+    
+    async def get_session_status(self) -> Dict:
+        """Live session status with the word-by-word command preview."""
+        try:
+            status = await self._bridge.stt_status()
+            return {
+                "state": status.get("state", "idle"),
+                "text": status.get("text", ""),
+                "error": status.get("error", ""),
+            }
+        except BridgeError as e:
+            self.logger.warning(f"Bridge unavailable for session status: {e}")
+            return {"state": "error", "text": "", "error": str(e)}
+    
+    async def wait_for_command(self, timeout_s: float = 60.0) -> ProcessedInput:
+        """
+        Wait for the live command to finish.
+        
+        Polls the bridge session status (word-by-word preview available
+        via get_session_status) until the user says an execute keyword
+        (the APK then turns the microphone off and enters state
+        'execute_ready'), or the timeout expires. The recognized text
+        may already have been corrected by edit_session_text.
+        """
+        start_time = time.time()
+        last_len = 0
+        deadline = time.time() + float(timeout_s)
+        
+        while time.time() < deadline:
+            status = await self.get_session_status()
+            state = status.get("state", "idle")
+            preview = status.get("text", "")
+            
+            # Live word-by-word preview: notify text callbacks as the
+            # recognized text grows.
+            if len(preview) > last_len:
+                last_len = len(preview)
+                for callback in self._on_text_input:
+                    try:
+                        callback(preview)
+                    except Exception as e:
+                        self.error_handler.handle_error(e, "preview_callback")
+            
+            if state == "execute_ready":
+                # Microphone is off; the text is final.
+                final_text = await self.finish_session()
+                if not final_text:
+                    final_text = preview
+                cleaned_text = self._clean_text(final_text)
+                return ProcessedInput(
+                    text=cleaned_text,
+                    input_type="voice",
+                    language=self._current_language,
+                    confidence=0.95,
+                    metadata={
+                        "recognition": "bridge_live_session",
+                        "processing_time": time.time() - start_time,
+                        "finished_by": "execute_keyword",
+                    },
+                )
+            
+            if state == "error":
+                raise ValueError(
+                    "voice session error: %s" % status.get("error", "unknown")
+                )
+            
+            if state == "idle":
+                # Session was cancelled or never started
+                raise ValueError("voice session is not active")
+            
+            await asyncio.sleep(0.25)
+        
+        # Timeout: finish whatever was captured so far (microphone off)
+        final_text = await self.finish_session()
+        if not final_text:
+            final_text = ""
+        cleaned_text = self._clean_text(final_text)
+        return ProcessedInput(
+            text=cleaned_text,
+            input_type="voice",
+            language=self._current_language,
+            confidence=0.6,
+            metadata={
+                "recognition": "bridge_live_session",
+                "processing_time": time.time() - start_time,
+                "finished_by": "timeout",
+            },
+        )
+    
+    async def edit_session_text(self, text: str) -> bool:
+        """Correct the recognized command text before execution."""
+        try:
+            result = await self._bridge.stt_set_text(str(text))
+            self.logger.info("Session text edited by user")
+            return isinstance(result, dict) and result.get("ok", False) is not False
+        except BridgeError as e:
+            self.error_handler.handle_error(e, "edit_session_text")
+            return False
+    
+    async def finish_session(self) -> str:
+        """Finish the session: microphone off, returns the final text."""
+        try:
+            return await self._bridge.stt_finish()
+        except BridgeError as e:
+            self.error_handler.handle_error(e, "finish_session")
+            return ""
+    
+    async def cancel_session(self) -> bool:
+        """Cancel the session: microphone off, text discarded."""
+        try:
+            await self._bridge.stt_cancel()
+            self.logger.info("Voice session cancelled")
+            return True
+        except BridgeError as e:
+            self.error_handler.handle_error(e, "cancel_session")
+            return False
+    
     async def start_listening(self) -> bool:
         """Start listening for voice input"""
         if self._is_listening:
@@ -392,3 +513,4 @@ class InputProcessor:
             self.logger.info("Cleaned up temporary files")
         except Exception as e:
             self.error_handler.handle_error(e, "input_cleanup")
+

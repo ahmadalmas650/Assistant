@@ -3,6 +3,7 @@ Output Generator Module
 Generates human-readable and machine-readable output
 """
 
+import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Any, Tuple, Union
@@ -124,6 +125,7 @@ class OutputGenerator:
         self._last_output: Optional[OutputMessage] = None
         self._output_history: List[OutputMessage] = []
         self._max_history = 100
+        self._speak_bridge = None
     
     def _load_templates(self) -> Dict:
         """Load output templates"""
@@ -539,8 +541,9 @@ class OutputGenerator:
         Args:
             command: The original command
             result: The execution result
-            
+           
         Returns:
+
             Command summary string
         """
         status = result.get("status", "unknown")
@@ -598,8 +601,9 @@ class OutputGenerator:
         
         del self._templates[name]
         self.logger.info(f"Template removed: {name}")
-        return True
+       return True
     
+
     def get_template(self, name: str) -> Optional[str]:
         """Get a template"""
         return self._templates.get(name)
@@ -640,10 +644,79 @@ class OutputGenerator:
         else:
             return message.content
     
+    # Streaming voice output (sentence-level TTS via the Bridge APK)
+    
+    def _get_bridge(self):
+        """Lazily create the bridge client used for speaking."""
+        if self._speak_bridge is None:
+            from .bridge_client import BridgeClient
+            bridge_cfg = getattr(self.config, 'bridge', None)
+            self._speak_bridge = BridgeClient(
+                host=getattr(bridge_cfg, 'host', '127.0.0.1'),
+                port=getattr(bridge_cfg, 'port', 8080),
+            )
+        return self._speak_bridge
+    
+    async def speak(self, text: str, language: str = "ur-PK") -> Dict:
+        """
+        Speak text through the Bridge APK with sentence-level streaming:
+        the APK queues the first sentence immediately and keeps appending
+        the remaining sentences, so playback starts at once. Returns the
+        bridge result dict with the language actually used.
+        """
+        if not text or not text.strip():
+            return {"ok": False, "error": "empty text"}
+        try:
+            bridge = self._get_bridge()
+            result = await bridge.tts_speak(text.strip(), language)
+            if isinstance(result, dict) and result.get("ok"):
+                self.logger.info(
+                    f"Streaming TTS started (language={result.get('language')}, "
+                    f"queued={result.get('queued')})")
+            return result if isinstance(result, dict) else {"ok": False, "error": "invalid bridge result"}
+        except Exception as e:
+            self.error_handler.handle_error(e, "speak")
+            return {"ok": False, "error": str(e)}
+    
+    async def speak_wait(self, text: str, language: str = "ur-PK",
+                        timeout_s: float = 120.0) -> bool:
+        """Speak and wait until the APK finishes playing."""
+        result = await self.speak(text, language)
+        if not result.get("ok"):
+            return False
+        bridge = self._get_bridge()
+        deadline = time.time() + float(timeout_s)
+        while time.time() < deadline:
+            try:
+                status = await bridge.tts_status()
+                if isinstance(status, dict) and status.get("done"):
+                    return True
+            except Exception:
+                return False
+            await asyncio.sleep(0.3)
+        return False
+    
+    async def stop_speaking(self) -> bool:
+        """Stop the current TTS playback."""
+        try:
+            if self._speak_bridge is not None:
+                await self._speak_bridge.tts_stop()
+                return True
+        except Exception as e:
+            self.error_handler.handle_error(e, "stop_speaking")
+        return False
+    
     # Cleanup
     
     async def cleanup(self):
         """Clean up resources"""
+        if self._speak_bridge is not None:
+            try:
+                await self._speak_bridge.close()
+            except Exception:
+                pass
+            self._speak_bridge = None
         self._output_history = []
         self._last_output = None
         self.logger.info("Output Generator cleaned up")
+
