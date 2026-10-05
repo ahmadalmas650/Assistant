@@ -255,8 +255,19 @@ class LiveControlSystem:
                             await self._handle_stop()
                             return
                     else:
-                        # Auto-retry or continue based on config
-                        pass
+                        # Auto-retry failed steps based on config
+                        cfg = getattr(self.config, 'tasks', None)
+                        max_retries = int(getattr(cfg, 'max_step_retries', 1))
+                        attempt = 0
+                        while attempt < max_retries and result.status == StepStatus.FAILED:
+                            attempt += 1
+                            self.logger.warning(f"Step {step.id} failed; retry {attempt}/{max_retries}")
+                            await self._notify_status_change({"status": "step_retry", "step_id": step.id, "attempt": attempt, "error": result.error})
+                            result = await self.execution_controller.execute_step(step)
+                            self._step_completion_times[step.id] = time.time()
+                        if result.status == StepStatus.FAILED and bool(getattr(cfg, 'stop_on_step_failure', True)):
+                            await self._handle_error(RuntimeError(f"Step {step.id} failed after {attempt} attempt(s): {result.error}"))
+                            return
                 
                 # Notify progress update
                 await self._notify_progress_update(step, i, result.status)
@@ -353,8 +364,15 @@ class LiveControlSystem:
             if mod.get("command") == "modify":
                 await self.execution_controller.modify_current_task(mod.get("data", ""))
             elif mod.get("command") == "add_step":
-                # Add step logic
-                pass
+                # Append a new step to the current plan
+                step_data = mod.get("data") or {}
+                if self._current_plan is not None:
+                    try:
+                        new_step = TaskStep(id=str(step_data.get("id") or f"added_{int(time.time())}"), description=str(step_data.get("description") or "Added step"))
+                        self._current_plan.steps.append(new_step)
+                        self.logger.info(f"Step added to plan: {new_step.id}")
+                    except TypeError as e:
+                        self.logger.error(f"add_step failed: {e}")
             elif mod.get("command") == "skip":
                 self._skip_requested = True
         
