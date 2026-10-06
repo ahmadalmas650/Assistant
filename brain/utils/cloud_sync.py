@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 import os
+import shutil
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -106,15 +107,60 @@ class CloudSync:
         
         # Conflict resolution
         self._conflict_resolution = "keep_both"  # keep_both, keep_local, keep_remote, newest
+        
+        # Real rclone backend detection (honest: sync only works when
+        # rclone is installed and a remote is configured in Termux)
+        self._rclone_path = shutil.which("rclone")
+        sync_cfg = getattr(config, "cloud_sync", None)
+        self._remote_name = str(getattr(sync_cfg, "remote_name", "assistant"))
+        self._remote_dir = str(getattr(sync_cfg, "remote_dir", "assistant-backup"))
+        self._local_dir = str(getattr(sync_cfg, "local_dir", "~/assistant-data"))
+        
+        if self._rclone_path is None:
+            self.logger.warning(
+                "rclone is not installed in Termux; cloud sync will report "
+                "honest failures until 'pkg install rclone' and a remote "
+                "are configured"
+            )
+    
+    def _rclone_available(self) -> bool:
+        """Check whether a real rclone binary is available."""
+        return self._rclone_path is not None
+    
+    async def _run_rclone(self, args: List[str]) -> Tuple[int, str, str]:
+        """Run a real rclone command and return (code, stdout, stderr)."""
+        proc = await asyncio.create_subprocess_exec(
+            self._rclone_path, *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        return (
+            proc.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace")
+        )
+    
+    async def _rclone_remote_exists(self) -> bool:
+        """Check (really, via rclone listremotes) that the remote exists."""
+        code, out, _ = await self._run_rclone(["listremotes"])
+        if code != 0:
+            return False
+        remotes = [line.strip() for line in out.splitlines() if line.strip()]
+        return f"{self._remote_name}:" in remotes
     
     # Configuration
     
     def set_provider(self, provider: str) -> bool:
-        """Set cloud provider"""
+        """Set cloud provider (maps to a real configured rclone remote)."""
         valid_providers = ["mega", "google_drive", "dropbox"]
         if provider in valid_providers:
             self._provider = provider
-            self.logger.info(f"Cloud provider set to: {provider}")
+            self._remote_name = provider
+            self.logger.info(
+                f"Cloud provider set to: {provider} (rclone remote "
+                f"'{provider}' must exist; run 'rclone config' if not)"
+            )
             return True
         return False
     
@@ -300,43 +346,70 @@ class CloudSync:
             )
     
     async def _download_sync(self) -> SyncResult:
-        """Download synchronization"""
+        """Download synchronization (real: rclone copy from the remote)."""
         start_time = time.time()
         
         try:
-            items_transferred = 0
-            items_failed = 0
-            conflicts = []
+            if not self._rclone_available():
+                return SyncResult(
+                    status=SyncStatus.FAILED,
+                    direction=SyncDirection.DOWNLOAD,
+                    start_time=start_time,
+                    end_time=time.time(),
+                    metadata={
+                        "error": "rclone is not installed; run 'pkg install "
+                                 "rclone' in Termux and configure a remote"
+                    }
+                )
             
-            # In a real implementation, download items from cloud
-            # For now, simulate
+            if not await self._rclone_remote_exists():
+                return SyncResult(
+                    status=SyncStatus.FAILED,
+                    direction=SyncDirection.DOWNLOAD,
+                    start_time=start_time,
+                    end_time=time.time(),
+                    metadata={
+                        "error": f"rclone remote '{self._remote_name}' is not "
+                                 f"configured; run 'rclone config'"
+                    }
+                )
             
-            # Simulate downloading 5 items
-            total_items = 5
+            local_dir = os.path.expanduser(self._local_dir)
+            os.makedirs(local_dir, exist_ok=True)
+            remote_path = f"{self._remote_name}:{self._remote_dir}"
             
-            for i in range(total_items):
+            code, out, err = await self._run_rclone([
+                "copy", remote_path, local_dir,
+                "--stats", "1", "--stats-one-line"
+            ])
+            
+            if code != 0:
+                self.logger.error(f"rclone download failed: {err.strip()}")
+                return SyncResult(
+                    status=SyncStatus.FAILED,
+                    direction=SyncDirection.DOWNLOAD,
+                    start_time=start_time,
+                    end_time=time.time(),
+                    metadata={"error": err.strip()[:500]}
+                )
+            
+            transferred = self._parse_rclone_transferred(out + "\n" + err)
+            self.logger.info(
+                f"rclone download complete: {transferred} file(s) copied"
+            )
+            
+            for callback in self._on_sync_progress:
                 try:
-                    # Simulate download
-                    await asyncio.sleep(0.1)
-                    items_transferred += 1
-                    
-                    # Update progress
-                    for callback in self._on_sync_progress:
-                        try:
-                            callback(i + 1, total_items)
-                        except Exception as e:
-                            self.error_handler.handle_error(e, "sync_progress_callback")
-                            
+                    callback(transferred, transferred)
                 except Exception as e:
-                    self.error_handler.handle_error(e, f"download_item_{i}")
-                    items_failed += 1
+                    self.error_handler.handle_error(e, "sync_progress_callback")
             
             return SyncResult(
                 status=SyncStatus.COMPLETED,
                 direction=SyncDirection.DOWNLOAD,
-                items_transferred=items_transferred,
-                items_failed=items_failed,
-                conflicts=conflicts,
+                items_transferred=transferred,
+                items_failed=0,
+                conflicts=[],
                 start_time=start_time,
                 end_time=time.time(),
                 duration=time.time() - start_time
@@ -351,6 +424,19 @@ class CloudSync:
                 end_time=time.time(),
                 metadata={"error": str(e)}
             )
+    
+    def _parse_rclone_transferred(self, output: str) -> int:
+        """Parse the real 'Transferred:' count from rclone stats output."""
+        for line in output.splitlines():
+            if "Transferred:" in line:
+                parts = line.split(": ", 1)
+                if len(parts) == 2:
+                    head = parts[1].split(" ", 1)[0]
+                    try:
+                        return int(head)
+                    except ValueError:
+                        continue
+        return 0
     
     async def _bidirectional_sync(self, items: List[Dict] = None) -> SyncResult:
         """Bidirectional synchronization"""
@@ -389,55 +475,67 @@ class CloudSync:
             )
     
     async def _upload_item(self, item: Dict) -> bool:
-        """Upload a single item to cloud"""
+        """Upload a single item to cloud (real: rclone copy to the remote)."""
         try:
-            if self._provider == "mega":
-                return await self._upload_to_mega(item)
-            elif self._provider == "google_drive":
-                return await self._upload_to_google_drive(item)
-            elif self._provider == "dropbox":
-                return await self._upload_to_dropbox(item)
-            else:
+            if not self._rclone_available():
+                self.logger.error(
+                    "Upload skipped: rclone is not installed in Termux"
+                )
                 return False
-                
+            
+            if not await self._rclone_remote_exists():
+                self.logger.error(
+                    f"Upload skipped: rclone remote '{self._remote_name}' "
+                    f"is not configured"
+                )
+                return False
+            
+            local_path = item.get("local_path") or item.get("file_path") or item.get("path")
+            if not local_path or not os.path.exists(str(local_path)):
+                self.logger.error(
+                    f"Upload skipped: local path not found: {local_path}"
+                )
+                return False
+            
+            local_path = str(local_path)
+            remote_path = f"{self._remote_name}:{self._remote_dir}"
+            
+            if os.path.isdir(local_path):
+                code, _, err = await self._run_rclone([
+                    "copy", local_path, remote_path,
+                    "--stats", "1", "--stats-one-line"
+                ])
+            else:
+                code, _, err = await self._run_rclone([
+                    "copyto", local_path,
+                    f"{remote_path}/{os.path.basename(local_path)}",
+                    "--stats", "1", "--stats-one-line"
+                ])
+            
+            if code != 0:
+                self.logger.error(
+                    f"rclone upload failed for {local_path}: {err.strip()[:300]}"
+                )
+                return False
+            
+            self.logger.info(f"rclone upload complete: {local_path}")
+            return True
+            
         except Exception as e:
             self.error_handler.handle_error(e, f"upload_item_{item.get('id', 'unknown')}")
             return False
     
     async def _upload_to_mega(self, item: Dict) -> bool:
-        """Upload to Mega cloud storage"""
-        try:
-            # In a real implementation, use rclone to upload
-            # For now, simulate
-            self.logger.debug(f"Uploading to Mega: {item.get('id', 'unknown')}")
-            await asyncio.sleep(0.1)  # Simulate network delay
-            return True
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, "upload_to_mega")
-            return False
+        """Upload to the configured Mega remote (real rclone remote)."""
+        return await self._upload_item(item)
     
     async def _upload_to_google_drive(self, item: Dict) -> bool:
-        """Upload to Google Drive"""
-        try:
-            self.logger.debug(f"Uploading to Google Drive: {item.get('id', 'unknown')}")
-            await asyncio.sleep(0.1)
-            return True
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, "upload_to_google_drive")
-            return False
+        """Upload to the configured Google Drive remote (real rclone remote)."""
+        return await self._upload_item(item)
     
     async def _upload_to_dropbox(self, item: Dict) -> bool:
-        """Upload to Dropbox"""
-        try:
-            self.logger.debug(f"Uploading to Dropbox: {item.get('id', 'unknown')}")
-            await asyncio.sleep(0.1)
-            return True
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, "upload_to_dropbox")
-            return False
+        """Upload to the configured Dropbox remote (real rclone remote)."""
+        return await self._upload_item(item)
     
     # Conflict Handling
     

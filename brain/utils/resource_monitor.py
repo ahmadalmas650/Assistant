@@ -7,7 +7,6 @@ import asyncio
 import json
 import time
 import os
-import psutil
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -123,10 +122,14 @@ class ResourceMonitor:
         self._on_resource_alert: List[Callable[[ResourceType, str, float], None]] = []
         self._on_resource_update: List[Callable[[ResourceStatus], None]] = []
         
-        # Initialize psutil if available
-        self._psutil_available = True
+        # Initialize psutil if available (optional dependency; the module
+        # must stay importable without it)
+        self._psutil = None
+        self._psutil_available = False
         try:
             import psutil
+            self._psutil = psutil
+            self._psutil_available = True
         except ImportError:
             self._psutil_available = False
     
@@ -141,6 +144,7 @@ class ResourceMonitor:
         
         try:
             if self._psutil_available:
+                psutil = self._psutil
                 # Get CPU usage
                 status.cpu_usage = psutil.cpu_percent(interval=1)
                 
@@ -170,14 +174,43 @@ class ResourceMonitor:
                 except:
                     pass
             else:
-                # Fallback to mock values if psutil not available
-                status.cpu_usage = 10.0
-                status.memory_usage = 0.5
-                status.memory_percent = 25.0
-                status.storage_usage = 5.0
-                status.storage_percent = 50.0
-                status.battery_level = 80.0
-                status.battery_charging = True
+                # No psutil: read real values from /proc instead of
+                # fabricating numbers. Values that cannot be measured
+                # honestly stay at their defaults (0.0).
+                try:
+                    with open("/proc/loadavg", "r") as f:
+                        load1 = float(f.read().split()[0])
+                    cpu_count = os.cpu_count() or 1
+                    status.cpu_usage = min(100.0, (load1 / cpu_count) * 100.0)
+                except (OSError, ValueError, IndexError):
+                    pass
+                
+                try:
+                    with open("/proc/meminfo", "r") as f:
+                        total_kb = 0.0
+                        available_kb = 0.0
+                        for line in f:
+                            if line.startswith("MemTotal:"):
+                                total_kb = float(line.split()[1])
+                            elif line.startswith("MemAvailable:"):
+                                available_kb = float(line.split()[1])
+                            if total_kb and available_kb:
+                                break
+                    if total_kb > 0:
+                        status.memory_usage = (total_kb - available_kb) / (1024 * 1024)
+                        status.memory_percent = ((total_kb - available_kb) / total_kb) * 100.0
+                except (OSError, ValueError, IndexError):
+                    pass
+                
+                try:
+                    statvfs = os.statvfs(os.path.expanduser("~"))
+                    total_bytes = statvfs.f_blocks * statvfs.f_frsize
+                    free_bytes = statvfs.f_bavail * statvfs.f_frsize
+                    if total_bytes > 0:
+                        status.storage_usage = (total_bytes - free_bytes) / (1024 ** 3)
+                        status.storage_percent = ((total_bytes - free_bytes) / total_bytes) * 100.0
+                except (OSError, AttributeError):
+                    pass
         
         except Exception as e:
             # Return last known status if error

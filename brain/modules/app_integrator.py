@@ -211,7 +211,7 @@ class AppIntegrator:
         """Register known apps (installation is verified against the device)"""
         known_apps = [
             AppInfo(
-                package_name="com.chatgpt",
+                package_name="com.openai.chatgpt",
                 app_name="ChatGPT",
                 category=AppCategory.AI_ASSISTANT,
                 capabilities=[
@@ -624,7 +624,7 @@ class AppIntegrator:
         """
         if apps is None:
             apps = [
-                "com.chatgpt",
+                "com.openai.chatgpt",
                 "com.deepseek.app",
                 "com.grok"
             ]
@@ -695,7 +695,7 @@ class AppIntegrator:
         """
         if sources is None:
             sources = [
-                "com.chatgpt",
+                "com.openai.chatgpt",
                 "com.deepseek.app",
                 "com.grok",
                 "com.android.chrome"
@@ -785,7 +785,7 @@ class AppIntegrator:
         """
         if apps is None:
             apps = [
-                "com.chatgpt",
+                "com.openai.chatgpt",
                 "com.deepseek.app",
                 "com.grok"
             ]

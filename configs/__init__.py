@@ -56,7 +56,7 @@ class AppConfig:
     allowed_apps: list = field(default_factory=lambda: [
         "com.android.chrome",
         "com.google.android.youtube",
-        "com.chatgpt",
+        "com.openai.chatgpt",
         "com.deepseek.app",
         "com.grok",
         "com.kinemaster",

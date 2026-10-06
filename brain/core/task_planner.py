@@ -736,8 +736,45 @@ class TaskPlanner:
         Returns:
             Optimized task plan
         """
-        # This would integrate with knowledge base and resource monitor
-        # For now, just return the original plan
+        # Real, deterministic optimizations that do not need external
+        # data: drop steps with unknown dependencies and collapse
+        # duplicate steps (same action, description and parameters).
+        step_ids = {s.id for s in plan.steps}
+        
+        kept_steps = []
+        seen_steps = set()
+        dropped_deps = []
+        
+        for step in plan.steps:
+            invalid_deps = [d for d in step.dependencies if d not in step_ids]
+            if invalid_deps:
+                step.dependencies = [
+                    d for d in step.dependencies if d in step_ids
+                ]
+                dropped_deps.append(f"{step.id}: {', '.join(invalid_deps)}")
+            
+            signature = (
+                step.action, step.description,
+                json.dumps(step.parameters, sort_keys=True, default=str)
+            )
+            if signature in seen_steps:
+                continue
+            seen_steps.add(signature)
+            kept_steps.append(step)
+        
+        if dropped_deps:
+            self.logger.warning(
+                f"Optimize: removed unknown dependencies: {dropped_deps}"
+            )
+        
+        if len(kept_steps) != len(plan.steps):
+            self.logger.info(
+                f"Optimize: removed {len(plan.steps) - len(kept_steps)} "
+                f"duplicate step(s)"
+            )
+        
+        plan.steps = kept_steps
+        
         return plan
     
     async def validate_plan(self, plan: TaskPlan) -> Tuple[bool, List[str]]:

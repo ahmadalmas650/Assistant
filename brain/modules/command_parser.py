@@ -497,8 +497,8 @@ class CommandParser:
         # Known apps
         known_apps = {
             'youtube': 'com.google.android.youtube',
-            'chatgpt': 'com.chatgpt',
-            'deepseek': 'com.deepseek',
+            'chatgpt': 'com.openai.chatgpt',
+            'deepseek': 'com.deepseek.app',
             'grok': 'com.grok',
             'kinemaster': 'com.kinemaster',
             'whatsapp': 'com.whatsapp',

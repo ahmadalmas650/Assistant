@@ -6,6 +6,7 @@ Calculates confidence levels for decisions and actions
 import json
 import time
 import math
+import os
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
@@ -56,6 +57,11 @@ class ConfidenceEngine:
         # Historical data
         self._success_rates = defaultdict(lambda: {"success": 0, "total": 0})
         self._knowledge_coverage = defaultdict(float)
+        
+        # Real recorded user preferences per intent
+        self._user_preferences = defaultdict(
+            lambda: {"preferred": 0, "total": 0}
+        )
     
     def calculate_confidence(self, command_data: Dict, task_plan: Dict) -> float:
         """
@@ -345,8 +351,9 @@ class ConfidenceEngine:
         """Calculate confidence based on historical success rates"""
         intent = command_data.get("intent", "")
         
-        # Get success rate for this intent
-        stats = self._success_rates.get(intent, {"success": 1, "total": 2})
+        # Get success rate for this intent (real recorded stats only;
+        # unknown intents honestly report no data)
+        stats = self._success_rates.get(intent, {"success": 0, "total": 0})
         
         if stats["total"] > 0:
             success_rate = stats["success"] / stats["total"]
@@ -364,14 +371,30 @@ class ConfidenceEngine:
         )
     
     def _calculate_preference_confidence(self, command_data: Dict) -> ConfidenceScore:
-        """Calculate confidence based on user preferences"""
-        # This would integrate with user preference system
-        # For now, return neutral confidence
+        """Calculate confidence from recorded user preferences (real data only)."""
+        preference_data = self._user_preferences.get(
+            command_data.get("intent", "")
+        )
+        
+        if not preference_data or preference_data.get("total", 0) <= 0:
+            return ConfidenceScore(
+                aspect="user_preference",
+                score=0.5,
+                weight=self._weights["user_preference"],
+                explanation="No user preference data recorded yet for this intent"
+            )
+        
+        total = preference_data["total"]
+        preferred = preference_data.get("preferred", 0)
+        ratio = preferred / total
         return ConfidenceScore(
             aspect="user_preference",
-            score=0.7,
+            score=ratio,
             weight=self._weights["user_preference"],
-            explanation="User preferences match"
+            explanation=(
+                f"User preferred this intent's handling in {preferred}/{total} "
+                f"recorded interactions"
+            )
         )
     
     def _calculate_app_confidence(self, task_plan: Dict) -> ConfidenceScore:
@@ -430,15 +453,42 @@ class ConfidenceEngine:
         )
     
     def _get_available_resources(self) -> Dict[str, float]:
-        """Get available system resources"""
-        # This would integrate with resource monitor
-        # For now, return optimistic values
-        return {
-            "memory": 2.0,  # GB
-            "cpu": 0.8,     # 80% available
-            "storage": 10.0, # GB
-            "network": 1.0   # Full connectivity
-        }
+        """Get real available system resources from the device.
+        
+        Memory comes from /proc/meminfo, storage from statvfs of the home
+        directory, and CPU from /proc/loadavg (relative to the CPU count).
+        Values that cannot be measured honestly are omitted so callers
+        never see fabricated numbers.
+        """
+        available: Dict[str, float] = {}
+        
+        # Real memory reading (GB available)
+        try:
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    if line.startswith("MemAvailable:"):
+                        available["memory"] = float(line.split()[1]) / (1024 * 1024)
+                        break
+        except (OSError, ValueError, IndexError):
+            pass
+        
+        # Real storage reading (GB available on the data partition)
+        try:
+            stats = os.statvfs(os.path.expanduser("~"))
+            available["storage"] = (stats.f_bavail * stats.f_frsize) / (1024 ** 3)
+        except (OSError, AttributeError):
+            pass
+        
+        # Real CPU availability (1 - load per core, clamped to [0, 1])
+        try:
+            with open("/proc/loadavg", "r") as f:
+                load1 = float(f.read().split()[0])
+            cpu_count = os.cpu_count() or 1
+            available["cpu"] = max(0.0, 1.0 - (load1 / cpu_count))
+        except (OSError, ValueError, IndexError):
+            pass
+        
+        return available
     
     def _generate_explanation(self, scores: List[ConfidenceScore], overall_score: float) -> str:
         """Generate human-readable explanation"""
@@ -468,6 +518,16 @@ class ConfidenceEngine:
         """Update knowledge coverage for an aspect"""
         self._knowledge_coverage[aspect] = coverage
         self.logger.debug(f"Updated knowledge coverage for {aspect}: {coverage:.2f}")
+    
+    def record_preference(self, intent: str, preferred: bool):
+        """Record a real user preference signal for an intent."""
+        prefs = self._user_preferences[intent]
+        prefs["total"] += 1
+        if preferred:
+            prefs["preferred"] += 1
+        self.logger.debug(
+            f"Updated preference for {intent}: {prefs['preferred']}/{prefs['total']}"
+        )
     
     def get_confidence_breakdown(self, command_data: Dict, task_plan: Dict) -> Dict:
         """Get detailed confidence breakdown"""

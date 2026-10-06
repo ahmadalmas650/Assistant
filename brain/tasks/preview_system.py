@@ -233,17 +233,24 @@ class PreviewSystem:
         """Generate suggestions for a plan"""
         suggestions = []
         
-        # Suggest alternatives for missing apps
+        # Suggest alternatives for missing apps (only alternatives that are
+        # actually in the user's allowed apps list are suggested)
         missing_apps = [req[4:] for req in plan.missing_requirements if req.startswith("app:")]
         app_alternatives = {
-            "com.kinemaster": ["com.adobe.premiererush", "com.lexa.fakegapp"],
-            "com.chatgpt": ["com.deepseek", "com.grok"],
+            "com.kinemaster": ["com.adobe.premiererush", "com.cyberlink.powerdirector.DESKTOP"],
+            "com.openai.chatgpt": ["com.deepseek.app", "com.grok"],
             "com.google.android.youtube": []
         }
         
         for app in missing_apps:
             if app in app_alternatives:
-                suggestions.append(f"Try using: {', '.join(app_alternatives[app])}")
+                available_apps = getattr(self.config, "allowed_apps", []) or []
+                available_alts = [
+                    alt for alt in app_alternatives[app]
+                    if alt in available_apps
+                ]
+                if available_alts:
+                    suggestions.append(f"Try using: {', '.join(available_alts)}")
         
         # Suggest breaking down complex tasks
         if plan.complexity.value >= TaskComplexity.HIGH.value:
@@ -693,10 +700,24 @@ class PreviewSystem:
             return False, f"Invalid priority: {edit_request.value}", []
     
     def _update_dependencies_after_add(self, plan: TaskPlan, position: int):
-        """Update dependencies after adding a step"""
-        # This is a simplified implementation
-        # A full implementation would re-index dependencies
-        pass
+        """Validate the added step's dependencies against the real plan."""
+        if position < 0 or position >= len(plan.steps):
+            return
+        
+        new_step = plan.steps[position]
+        valid_ids = {
+            s.id for i, s in enumerate(plan.steps) if i != position
+        }
+        
+        invalid = [d for d in new_step.dependencies if d not in valid_ids]
+        if invalid:
+            new_step.dependencies = [
+                d for d in new_step.dependencies if d in valid_ids
+            ]
+            self.logger.warning(
+                f"Removed invalid dependencies from added step "
+                f"{new_step.id}: {', '.join(invalid)}"
+            )
     
     def _update_dependencies_after_remove(self, plan: TaskPlan, removed_index: int, removed_step: TaskStep):
         """Update dependencies after removing a step"""
@@ -715,10 +736,23 @@ class PreviewSystem:
             step.dependencies = new_deps
     
     def _update_dependencies_after_reorder(self, plan: TaskPlan):
-        """Update dependencies after reordering steps"""
-        # This is a simplified implementation
-        # A full implementation would validate dependency order
-        pass
+        """Check the real dependency order after a reorder and warn."""
+        position_by_id = {step.id: i for i, step in enumerate(plan.steps)}
+        
+        for step in plan.steps:
+            step_index = position_by_id.get(step.id, -1)
+            for dep_id in step.dependencies:
+                dep_index = position_by_id.get(dep_id, -1)
+                if dep_index < 0:
+                    self.logger.warning(
+                        f"Step {step.id} depends on unknown step {dep_id}"
+                    )
+                elif dep_index > step_index:
+                    self.logger.warning(
+                        f"Step {step.id} now runs before its dependency "
+                        f"{dep_id}; the executor will retry it until the "
+                        f"dependency completes"
+                    )
     
     async def validate_edit(self, plan: TaskPlan, edit_request: EditRequest) -> Tuple[bool, str]:
         """

@@ -41,7 +41,7 @@
     "allowed_apps": [
       "com.android.chrome",
       "com.google.android.youtube",
-      "com.chatgpt",
+      "com.openai.chatgpt",
       "com.deepseek.app",
       "com.grok",
       "com.kinemaster",

@@ -67,11 +67,10 @@ class BrainConfig:
     allowed_apps: List[str] = field(default_factory=lambda: [
         "com.android.chrome",
         "com.google.android.youtube",
-        "com.chatgpt",
-        "com.deepseek",
+        "com.openai.chatgpt",
+        "com.deepseek.app",
         "com.grok",
         "com.kinemaster",
-        "com.lexa.fakegapp",  # YouTube
         "org.telegram.messenger",
         "com.whatsapp"
     ])
