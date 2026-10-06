@@ -135,6 +135,15 @@ class JARVIS:
             self.learning_manager = LearningManager(self.config, self.logger)
             await self.learning_manager.initialize()
             
+            # Wire real device components into the ExecutionController so
+            # task steps run against the live device (no simulated results)
+            if self.brain is not None:
+                self.brain.execution_controller.set_device_context(
+                    accessibility=self.accessibility_controller,
+                    ocr_engine=self.ocr_engine,
+                    search_provider=self._real_search
+                )
+            
             # Initialize tasks
             self.task_manager = TaskManager(self.config, self.logger)
             await self.task_manager.initialize()
@@ -164,6 +173,49 @@ class JARVIS:
             self.error_handler.handle_error(e, "jarvis_initialize")
             self.logger.error(f"Failed to initialize JARVIS: {str(e)}")
             return False
+    
+    async def _real_search(self, query: str, sources=None) -> Dict:
+        """Real search provider wired into the ExecutionController.
+        
+        Searches the local knowledge base and every requested real source
+        through the multi-source learner. Results come only from real
+        sources; nothing is fabricated.
+        """
+        if sources is None:
+            sources = []
+        if not isinstance(sources, list):
+            sources = [sources]
+        
+        results: Dict = {}
+        
+        # Local knowledge base (real stored knowledge)
+        try:
+            kb_items = await self.learning_manager.query_knowledge(query, limit=10)
+            results["knowledge_base"] = {
+                "query": query,
+                "results": [
+                    item.to_dict() if hasattr(item, "to_dict") else dict(item)
+                    for item in kb_items
+                ]
+            }
+        except Exception as e:
+            results["knowledge_base"] = {"query": query, "results": [], "error": str(e)}
+        
+        # Requested external sources via the real multi-source learner
+        for source in sources:
+            if source == "knowledge_base":
+                continue
+            try:
+                learned = await self.learning_manager.learn_from_multiple_sources(
+                    query, [source]
+                )
+                results[source] = learned.get(source, {
+                    "query": query, "results": []
+                })
+            except Exception as e:
+                results[source] = {"query": query, "results": [], "error": str(e)}
+        
+        return results
     
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""

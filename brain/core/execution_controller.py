@@ -11,11 +11,12 @@ from typing import Dict, List, Optional, Any, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import traceback
+import os
 
 from ..utils.logger import Logger
 from ..utils.error_handler import ErrorHandler
 from ..utils.resource_monitor import ResourceMonitor
-from .task_planner import TaskPlan, TaskStep, StepStatus
+from .task_planner import TaskPlan, TaskStep, StepStatus, TaskComplexity
 from ..modules.input_processor import InputProcessor
 from ..memory.memory_manager import MemoryManager
 
@@ -112,6 +113,12 @@ class ExecutionController:
         self._stop_event = asyncio.Event()
         self._modification_request: Optional[str] = None
         
+        # Device context (wired from main.py; handlers stay honest and
+        # fail loudly when a required component is not wired)
+        self._accessibility = None
+        self._ocr_engine = None
+        self._search_provider = None
+        
         # Step handlers
         self._step_handlers: Dict[str, Callable] = {}
         self._register_default_handlers()
@@ -149,6 +156,21 @@ class ExecutionController:
         """Register a step handler"""
         self._step_handlers[action] = handler
         self.logger.debug(f"Registered handler for action: {action}")
+    
+    def set_device_context(self, accessibility=None, ocr_engine=None,
+                           search_provider=None):
+        """Wire real device components used by the default step handlers.
+        
+        Args:
+            accessibility: AccessibilityController instance (live bridge)
+            ocr_engine: OCREngine instance (live accessibility tree OCR)
+            search_provider: async callable(query, sources) -> Dict that
+                performs a real search and returns real results.
+        """
+        self._accessibility = accessibility
+        self._ocr_engine = ocr_engine
+        self._search_provider = search_provider
+        self.logger.info("Device context wired into ExecutionController")
     
     async def execute(self, plan: TaskPlan, confidence: float = 1.0) -> ExecutionResult:
         """
@@ -324,11 +346,25 @@ class ExecutionController:
             if result.status == StepStatus.COMPLETED:
                 completed_steps.add(step.id)
             elif result.status == StepStatus.FAILED:
-                # Handle failure
-                if step.retry_count > 0:
-                    # Retry logic would go here
-                    pass
-                break
+                # Real retry logic: retry up to step.retry_count times
+                max_retries = int(getattr(step, "retry_count", 0) or 0)
+                attempt = 0
+                while attempt < max_retries and not self._stop_event.is_set():
+                    attempt += 1
+                    self.logger.warning(
+                        f"Step {step.id} failed, retrying "
+                        f"({attempt}/{max_retries}): {step.error}"
+                    )
+                    await asyncio.sleep(min(2.0 ** attempt, 8.0))
+                    result = await self._execute_step(step, step_map)
+                    step_results.append(result)
+                    if result.status == StepStatus.COMPLETED:
+                        break
+                
+                if result.status == StepStatus.COMPLETED:
+                    completed_steps.add(step.id)
+                else:
+                    break
             
             # Check for stop
             if self._stop_event.is_set():
@@ -337,9 +373,8 @@ class ExecutionController:
         return step_results
     
     async def _execute_parallel(self, plan: TaskPlan) -> List[StepExecutionResult]:
-        """Execute steps in parallel where possible"""
-        # This is a simplified implementation
-        # A full implementation would use dependency analysis
+        """Execute steps (sequentially; parallel scheduling is disabled on
+        this low-memory device to keep resource usage bounded)."""
         return await self._execute_sequential(plan)
     
     async def _execute_hybrid(self, plan: TaskPlan) -> List[StepExecutionResult]:
@@ -425,241 +460,219 @@ class ExecutionController:
     
     # Default Step Handlers
     
-    async def _handle_select_file(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle file selection"""
-        file_type = step.parameters.get("file_type", "unknown")
-        
-        # This would integrate with Android bridge
-        # For now, return mock result
-        self.logger.info(f"Selecting {file_type} file")
-        
-        return {
-            "action": "select_file",
-            "file_type": file_type,
-            "file_path": f"/storage/emulated/0/Download/sample_{file_type}.{file_type}",
-            "status": "selected"
-        }
-    
-    async def _handle_check_metadata(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle metadata checking"""
-        check_items = step.parameters.get("check", [])
-        
-        # Find the file from previous step
-        file_path = None
+    def _dep_result(self, step: TaskStep, step_map: Dict, *keys: str) -> Optional[Dict]:
+        """Return the first dependency result containing one of the given keys."""
         for dep_id in step.dependencies:
             dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                file_path = dep_step.result.get("file_path")
-                break
+            if dep_step and isinstance(dep_step.result, dict):
+                for key in keys:
+                    if dep_step.result.get(key) is not None:
+                        return dep_step.result
+        return None
+    
+    async def _handle_select_file(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Handle file selection (real: verifies the provided file exists)."""
+        file_type = step.parameters.get("file_type", "unknown")
+        file_path = step.parameters.get("file_path")
         
-        self.logger.info(f"Checking metadata for {file_path}")
+        if not file_path:
+            raise ValueError(
+                "select_file requires a 'file_path' parameter; none was provided"
+            )
         
-        # Mock metadata check
-        missing = []
-        for item in check_items:
-            if item not in ["title", "description"]:  # Simulate some missing
-                missing.append(item)
+        if os.path.isfile(str(file_path)):
+            self.logger.info(f"Selected existing file: {file_path}")
+            return {
+                "action": "select_file",
+                "file_type": file_type,
+                "file_path": file_path,
+                "status": "selected"
+            }
+        
+        raise FileNotFoundError(f"File not found on device: {file_path}")
+    
+    async def _handle_check_metadata(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Handle metadata checking against real metadata only."""
+        check_items = step.parameters.get("check", [])
+        if not isinstance(check_items, list):
+            check_items = [check_items]
+        
+        dep_result = self._dep_result(step, step_map, "metadata")
+        metadata = (dep_result or {}).get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = step.parameters.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        if not metadata:
+            return {
+                "action": "check_metadata",
+                "checked": check_items,
+                "missing": [],
+                "present": [],
+                "status": "no_metadata_available",
+                "message": "No real metadata was provided for this file"
+            }
+        
+        missing = [item for item in check_items if not metadata.get(item)]
+        present = [item for item in check_items if metadata.get(item)]
         
         return {
             "action": "check_metadata",
-            "file_path": file_path,
             "checked": check_items,
             "missing": missing,
-            "present": [item for item in check_items if item not in missing]
+            "present": present,
+            "status": "checked"
         }
     
     async def _handle_edit_if_needed(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle conditional editing"""
-        auto_edit = step.parameters.get("auto_edit", False)
-        
-        # Find metadata check result
-        metadata_result = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                metadata_result = dep_step.result
-                break
+        """Handle conditional editing based on the real metadata check."""
+        metadata_result = self._dep_result(step, step_map, "missing")
         
         if metadata_result and metadata_result.get("missing"):
-            # Editing needed
             self.logger.info("Editing required - missing metadata")
             return {
                 "action": "edit_if_needed",
                 "editing_required": True,
                 "missing_items": metadata_result["missing"],
-                "app": "com.kinemaster"
+                "app": step.parameters.get("app", "")
             }
-        else:
-            return {
-                "action": "edit_if_needed",
-                "editing_required": False
-            }
+        
+        return {
+            "action": "edit_if_needed",
+            "editing_required": False
+        }
     
     async def _handle_create_thumbnail(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle thumbnail creation"""
-        auto_generate = step.parameters.get("auto_generate", False)
+        """Handle thumbnail creation (honest: no image tool on device)."""
+        dep_result = self._dep_result(step, step_map, "file_path")
+        file_path = (dep_result or {}).get("file_path")
         
-        # Find file from dependencies
-        file_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                file_path = dep_step.result.get("file_path")
-                break
-        
-        self.logger.info(f"Creating thumbnail for {file_path}")
-        
-        return {
-            "action": "create_thumbnail",
-            "file_path": file_path,
-            "thumbnail_path": f"/storage/emulated/0/Download/thumbnail_{int(time.time())}.jpg",
-            "status": "created"
-        }
+        raise RuntimeError(
+            "create_thumbnail is not available: no image-processing tool is "
+            "installed on this device. Install one (for example Termux "
+            "imagemagick) before planning thumbnail steps."
+        )
     
     async def _handle_upload(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle file upload"""
+        """Handle file upload (honest: no platform credentials configured)."""
         platform = step.parameters.get("platform", "youtube")
+        dep_result = self._dep_result(step, step_map, "file_path")
+        file_path = (dep_result or {}).get("file_path")
         
-        # Find file from dependencies
-        file_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                file_path = dep_step.result.get("file_path")
-                break
-        
-        self.logger.info(f"Uploading {file_path} to {platform}")
-        
-        # Simulate upload process
-        await asyncio.sleep(2)
-        
-        return {
-            "action": "upload",
-            "file_path": file_path,
-            "platform": platform,
-            "upload_id": f"upload_{int(time.time())}",
-            "status": "uploading",
-            "progress": 100,
-            "url": f"https://{platform}.com/watch?v={uuid.uuid4().hex[:11]}"
-        }
+        raise RuntimeError(
+            f"upload to {platform} is not available: no {platform} account "
+            f"credentials are configured on this device. Sign in manually "
+            f"once and configure the account before planning upload steps."
+        )
     
     async def _handle_verify_upload(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle upload verification"""
-        # Find upload result from dependencies
-        upload_result = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                upload_result = dep_step.result
-                break
+        """Handle upload verification against the real prior result only."""
+        dep_result = self._dep_result(step, step_map, "upload_id")
         
-        if upload_result:
-            self.logger.info(f"Verifying upload: {upload_result.get('upload_id')}")
-            
-            # Simulate verification
-            await asyncio.sleep(1)
-            
-            return {
-                "action": "verify_upload",
-                "upload_id": upload_result.get("upload_id"),
-                "status": "verified",
-                "url": upload_result.get("url"),
-                "success": True
-            }
+        if not dep_result:
+            raise ValueError(
+                "verify_upload has no prior upload result to verify"
+            )
         
-        return {"action": "verify_upload", "status": "failed", "success": False}
+        status = dep_result.get("status", "unknown")
+        return {
+            "action": "verify_upload",
+            "upload_id": dep_result.get("upload_id"),
+            "status": status,
+            "url": dep_result.get("url"),
+            "success": status in ("completed", "uploaded")
+        }
     
     async def _handle_open_editor(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle opening editor"""
-        app = step.parameters.get("app", "com.kinemaster")
+        """Handle opening an editor app (real, human-style launch via bridge)."""
+        app = step.parameters.get("app")
+        if not app:
+            raise ValueError("open_editor requires an 'app' parameter")
         
-        # Find file from dependencies
-        file_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                file_path = dep_step.result.get("file_path")
-                break
+        dep_result = self._dep_result(step, step_map, "file_path")
+        file_path = (dep_result or {}).get("file_path")
         
-        self.logger.info(f"Opening {app} for {file_path}")
+        if self._accessibility is None:
+            raise RuntimeError(
+                "open_editor is not available: the accessibility controller "
+                "is not wired into the ExecutionController"
+            )
         
+        bridge = getattr(self._accessibility, "bridge", None)
+        launch_data: Optional[Dict] = None
+        
+        if bridge is not None and hasattr(bridge, "launch_app_by_name"):
+            launch_data = await bridge.launch_app_by_name(str(app))
+        
+        if not (isinstance(launch_data, dict) and launch_data.get("success")):
+            raise RuntimeError(
+                f"Could not launch '{app}' via the launcher search; it may "
+                f"not be installed or the launcher search was unavailable"
+            )
+        
+        self.logger.info(f"Launched {app} (package: {launch_data.get('package')})")
         return {
             "action": "open_editor",
             "app": app,
+            "package": launch_data.get("package"),
             "file_path": file_path,
             "status": "opened"
         }
     
     async def _handle_apply_edits(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle applying edits"""
-        self.logger.info("Applying edits")
-        
-        # Simulate editing process
-        await asyncio.sleep(3)
-        
-        return {
-            "action": "apply_edits",
-            "status": "applied",
-            "changes": ["color_correction", "contrast_adjustment", "crop"]
-        }
+        """Handle applying edits (honest: no editing pipeline on device)."""
+        raise RuntimeError(
+            "apply_edits is not available: no real editing pipeline is "
+            "installed on this device. Drive the target editor app through "
+            "accessibility actions instead."
+        )
     
     async def _handle_save_file(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle saving file"""
-        # Find file from dependencies
-        file_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                file_path = dep_step.result.get("file_path")
-                break
-        
-        self.logger.info(f"Saving file: {file_path}")
-        
-        return {
-            "action": "save_file",
-            "file_path": file_path,
-            "saved_path": f"/storage/emulated/0/Download/edited_{int(time.time())}.jpg",
-            "status": "saved"
-        }
+        """Handle saving a file (honest: no editing pipeline on device)."""
+        raise RuntimeError(
+            "save_file is not available: no real editing pipeline is "
+            "installed on this device. Drive the target editor app's save "
+            "button through accessibility actions instead."
+        )
     
     async def _handle_extract_query(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle query extraction"""
-        # This would extract query from command context
-        query = "sample search query"
+        """Handle query extraction from the real step parameters."""
+        query = step.parameters.get("query")
+        
+        if not query or not str(query).strip():
+            raise ValueError(
+                "extract_query requires a 'query' parameter; none was provided"
+            )
         
         self.logger.info(f"Extracted query: {query}")
-        
         return {
             "action": "extract_query",
-            "query": query,
+            "query": str(query).strip(),
             "status": "extracted"
         }
     
     async def _handle_search(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle searching"""
+        """Handle searching through the real configured search provider."""
         sources = step.parameters.get("sources", [])
+        if not isinstance(sources, list):
+            sources = [sources]
         
-        # Find query from dependencies
-        query = ""
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                query = dep_step.result.get("query", "")
-                break
+        dep_result = self._dep_result(step, step_map, "query")
+        query = (dep_result or {}).get("query") or step.parameters.get("query")
         
+        if not query or not str(query).strip():
+            raise ValueError("search requires a query; none was provided")
+        
+        if self._search_provider is None:
+            raise RuntimeError(
+                "search is not available: no search provider is wired into "
+                "the ExecutionController"
+            )
+        
+        query = str(query).strip()
         self.logger.info(f"Searching '{query}' in {sources}")
-        
-        # Simulate search in multiple sources
-        results = {}
-        for source in sources:
-            await asyncio.sleep(0.5)  # Simulate network delay
-            results[source] = {
-                "query": query,
-                "results": [
-                    {"title": f"Result 1 for {query}", "source": source},
-                    {"title": f"Result 2 for {query}", "source": source}
-                ]
-            }
+        results = await self._search_provider(query, sources)
         
         return {
             "action": "search",
@@ -670,27 +683,32 @@ class ExecutionController:
         }
     
     async def _handle_merge_results(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle merging results from multiple sources"""
-        # Find search results from dependencies
+        """Merge real result sets coming from dependency steps."""
         search_results = []
         for dep_id in step.dependencies:
             dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
+            if dep_step and isinstance(dep_step.result, dict):
                 search_results.append(dep_step.result)
         
         self.logger.info(f"Merging {len(search_results)} result sets")
         
-        # Simulate merging
         all_results = []
         for result in search_results:
-            if "results" in result:
-                for source, data in result["results"].items():
-                    all_results.extend(data["results"])
+            if not isinstance(result, dict):
+                continue
+            inner = result.get("results")
+            if isinstance(inner, dict):
+                for data in inner.values():
+                    if isinstance(data, dict) and isinstance(data.get("results"), list):
+                        all_results.extend(data["results"])
+            elif isinstance(inner, list):
+                all_results.extend(inner)
         
-        # Deduplicate and sort
         unique_results = []
         seen = set()
         for r in all_results:
+            if not isinstance(r, dict):
+                continue
             title = r.get("title", "")
             if title not in seen:
                 seen.add(title)
@@ -705,19 +723,12 @@ class ExecutionController:
         }
     
     async def _handle_present_results(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle presenting results"""
-        # Find merged results from dependencies
-        merged_result = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                merged_result = dep_step.result
-                break
+        """Present the real merged results from dependency steps."""
+        dep_result = self._dep_result(step, step_map, "merged_results")
         
-        if merged_result:
-            results = merged_result.get("merged_results", [])
+        if dep_result:
+            results = dep_result.get("merged_results", [])
             self.logger.info(f"Presenting {len(results)} results")
-            
             return {
                 "action": "present_results",
                 "results": results,
@@ -728,92 +739,95 @@ class ExecutionController:
         return {"action": "present_results", "status": "no_results"}
     
     async def _handle_capture_screen(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle screen capture"""
-        self.logger.info("Capturing screen")
+        """Capture the live on-screen text (real, via the accessibility bridge)."""
+        if self._accessibility is None:
+            raise RuntimeError(
+                "capture_screen is not available: the accessibility "
+                "controller is not wired into the ExecutionController"
+            )
         
-        # Simulate screenshot
-        await asyncio.sleep(1)
+        action_result = await self._accessibility.extract_screen_text()
+        
+        if not getattr(action_result, "success", False):
+            raise RuntimeError(
+                f"Live screen read failed: {getattr(action_result, 'message', 'unknown error')}"
+            )
+        
+        data = getattr(action_result, "data", None)
+        text = ""
+        if isinstance(data, dict):
+            text = str(data.get("text", ""))
+        elif isinstance(data, str):
+            text = data
+        
+        if not text:
+            raise RuntimeError(
+                "The current screen exposes no readable text nodes"
+            )
         
         return {
             "action": "capture_screen",
-            "screenshot_path": f"/storage/emulated/0/Pictures/Screenshots/screenshot_{int(time.time())}.png",
-            "status": "captured",
-            "resolution": "1080x2340"
+            "screen_text": text,
+            "status": "captured"
         }
     
     async def _handle_save_screenshot(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle saving screenshot"""
-        # Find screenshot from dependencies
-        screenshot_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                screenshot_path = dep_step.result.get("screenshot_path")
-                break
-        
-        self.logger.info(f"Saving screenshot: {screenshot_path}")
-        
-        return {
-            "action": "save_screenshot",
-            "screenshot_path": screenshot_path,
-            "status": "saved"
-        }
+        """Handle saving a screenshot (honest: image capture not supported)."""
+        raise RuntimeError(
+            "save_screenshot is not available: the Bridge APK does not "
+            "capture screen images. Use capture_screen for live screen "
+            "text instead."
+        )
     
     async def _handle_run_ocr(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle OCR processing"""
-        # Find image from dependencies
-        image_path = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                image_path = dep_step.result.get("file_path") or dep_step.result.get("screenshot_path")
-                break
+        """Run real live screen OCR through the accessibility tree."""
+        if self._ocr_engine is None:
+            raise RuntimeError(
+                "run_ocr is not available: the OCR engine is not wired "
+                "into the ExecutionController"
+            )
         
-        self.logger.info(f"Running OCR on: {image_path}")
+        ocr_result = await self._ocr_engine.extract_text_from_screen()
         
-        # Simulate OCR
-        await asyncio.sleep(2)
+        if not ocr_result.ok:
+            raise RuntimeError(
+                f"Live screen OCR failed: {getattr(ocr_result, 'error', 'unknown error')}"
+            )
         
+        text = str(getattr(ocr_result, "text", ""))
         return {
             "action": "run_ocr",
-            "image_path": image_path,
-            "text": "This is sample text extracted from the image using OCR technology.",
-            "language": "en",
-            "confidence": 0.95,
+            "text": text,
+            "language": "live-screen",
+            "confidence": float(getattr(ocr_result, "confidence", 0.0)),
+            "processing_time": float(getattr(ocr_result, "processing_time", 0.0)),
             "status": "completed"
         }
     
     async def _handle_return_text(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Handle returning OCR text"""
-        # Find OCR result from dependencies
-        ocr_result = None
-        for dep_id in step.dependencies:
-            dep_step = step_map.get(dep_id)
-            if dep_step and dep_step.result:
-                ocr_result = dep_step.result
-                break
+        """Return the real text produced by a dependency step."""
+        dep_result = self._dep_result(step, step_map, "text", "screen_text")
         
-        if ocr_result:
-            text = ocr_result.get("text", "")
-            self.logger.info(f"Returning OCR text: {text[:50]}...")
-            
-            return {
-                "action": "return_text",
-                "text": text,
-                "source": "ocr",
-                "status": "returned"
-            }
+        if dep_result:
+            text = str(dep_result.get("text") or dep_result.get("screen_text") or "")
+            if text:
+                return {
+                    "action": "return_text",
+                    "text": text,
+                    "source": dep_result.get("action", "dependency"),
+                    "status": "returned"
+                }
         
-        return {"action": "return_text", "text": "", "status": "no_text"}
+        raise ValueError("return_text found no text in any dependency step")
     
     async def _handle_generic_step(self, step: TaskStep, step_map: Dict) -> Dict:
-        """Generic handler for unknown steps"""
+        """Generic handler for unknown steps (honest, never simulated)."""
         self.logger.warning(f"No specific handler for action: {step.action}")
         
         return {
             "action": step.action,
             "status": "not_implemented",
-            "message": f"Action '{step.action}' not implemented yet"
+            "message": f"Action '{step.action}' has no real implementation yet"
         }
     
     # Control Methods
@@ -851,13 +865,31 @@ class ExecutionController:
         return False
     
     async def _apply_modification(self, original_plan: TaskPlan, modification: str) -> TaskPlan:
-        """Apply modification to a plan"""
-        # This is a simplified implementation
-        # A full implementation would parse the modification and update the plan
+        """Apply a modification request to a running plan.
         
+        The modification text is recorded on the plan metadata so later
+        processing can react to it. No step is silently changed: if the
+        modification cannot be mapped to concrete steps, the original
+        plan keeps running unchanged and the request stays visible.
+        """
         self.logger.info(f"Applying modification: {modification}")
         
-        # For now, just return the original plan
+        try:
+            metadata = getattr(original_plan, "metadata", None)
+            if isinstance(metadata, dict):
+                requests = metadata.setdefault("modification_requests", [])
+                if isinstance(requests, list):
+                    requests.append({
+                        "text": modification,
+                        "timestamp": time.time()
+                    })
+            else:
+                self.logger.warning(
+                    "Plan has no metadata dict; modification recorded in log only"
+                )
+        except Exception as e:
+            self.error_handler.handle_error(e, "apply_modification")
+        
         return original_plan
     
     def _get_final_output(self, plan: TaskPlan, step_results: List[StepExecutionResult]) -> Any:
