@@ -53,7 +53,7 @@ JARVIS is a modular AI assistant that:
 - **Task Automation**: Autonomous task execution with preview
 - **Multi-Source Learning**: Integrates with installed apps (ChatGPT, DeepSeek, Chrome, YouTube, Grok, etc.)
 - **Decision Engine**: Confidence-based decision making
-- **OCR & Screenshot**: Text extraction from images and screen
+- **Screen Reading**: Live text extraction from the screen via the accessibility node tree (no screenshots, no image OCR)
 - **Accessibility Integration**: Full device control capabilities
 
 ### Privacy & Data
@@ -90,7 +90,7 @@ Assistant/
 ├── configs/               # Configuration files
 ├── scripts/               # Setup and utility scripts
 ├── tests/                 # Testing framework
-└── docs/                  # Documentation
+└── docs/                  # Documentation (SCREEN_VISION.md)
 ```
 
 ## Development Environment
@@ -109,8 +109,8 @@ Assistant/
 1. **Termux Setup**:
    ```bash
    pkg update && pkg upgrade
-   pkg install python git openjdk-17
-   pip install fastapi uvicorn pydantic requests pillow pytesseract
+   pkg install python git openjdk-17 rclone
+   pip install -r requirements.txt   # cryptography + psutil (optional) + pytest
    ```
 
 2. **Clone Repository**:
@@ -121,7 +121,9 @@ Assistant/
 
 3. **Build Bridge APK**:
    ```bash
-   # Will be implemented in bridge/ directory
+   # Builds the real APK inside Termux (low-RAM gradle settings included)
+   bash scripts/setup_termux.sh
+   bash scripts/build_bridge.sh
    ```
 
 ## Usage
@@ -152,17 +154,23 @@ Execute? (y/n/edit): y
 
 ## Example Workflow: Video Upload
 
+> Honest limitation: on-device video upload to YouTube is NOT currently
+> possible. The upload, create_thumbnail, apply_edits and save_screenshot
+> steps have no real implementation on this device and report an honest
+> failure instead of pretending to succeed. What really works today:
+> app launching (human-style launcher search), screen reading, live
+> screen text extraction, app automation via accessibility, learning,
+> memory, and Mega cloud sync via rclone.
+
 1. **Command Received**: "Upload video to YouTube"
 2. **Analysis**: 
    - Identify video file (user selection or latest)
    - Check for missing elements (title, description, thumbnail, editing)
 3. **Preview**: Show execution plan
 4. **Execution**:
-   - Open Kinemaster for editing (if needed)
-   - Generate thumbnail (if missing)
-   - Create title/description
-   - Upload via YouTube app
-   - Verify upload success
+   - Open Kinemaster via launcher search (real)
+   - Generate thumbnail / upload / verify (honest failure: not
+     implemented on-device; no YouTube credentials configured)
 5. **Learning**: Store workflow for future optimization
 
 ## API Keys

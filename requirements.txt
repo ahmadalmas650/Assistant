@@ -10,7 +10,8 @@
 # Encryption for the privacy guard (sensitive data handling)
 cryptography>=41.0.0
 
-# Resource monitoring (RAM/battery awareness on a 3 GB device)
+# Resource monitoring (optional: the code reads /proc directly when
+# psutil is not installed; install it only if you want battery stats)
 psutil>=5.9.0
 
 # Testing

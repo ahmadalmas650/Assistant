@@ -34,7 +34,6 @@ from .memory import (
 
 from .tasks import (
     TaskManager,
-    TaskExecutor,
     PreviewSystem,
     LiveControlSystem
 )
