@@ -1,0 +1,79 @@
+for missing dependencies
+        step_ids = {s.id for s in plan.steps}
+        for step in plan.steps:
+            for dep in step.dependencies:
+                if dep not in step_ids:
+                    errors.append(f"Step {step.id} has missing dependency: {dep}")
+        
+        # Check resource requirements
+        available_resources = self._get_available_resources()
+        for resource, amount in plan.required_resources.items():
+            available = available_resources.get(resource, 0)
+            if available < amount:
+                errors.append(f"Insufficient resource: {resource}")
+        
+        # Check app requirements
+        available_apps = self.config.allowed_apps
+        for app in plan.required_apps:
+            if app not in available_apps:
+                errors.append(f"Missing app: {app}")
+        
+        return len(errors) == 0, errors
+    
+    def _has_circular_dependencies(self, steps: List[TaskStep]) -> bool:
+        """Check for circular dependencies in steps"""
+        # This is a simplified check - a full implementation would use graph algorithms
+        for step in steps:
+            visited = set()
+            if self._check_circular(step.id, step.dependencies, steps, visited):
+                return True
+        return False
+    
+    def _check_circular(self, step_id: str, dependencies: List[str], 
+                       steps: List[TaskStep], visited: Set[str]) -> bool:
+        """Recursive check for circular dependencies"""
+        if step_id in visited:
+            return True
+        
+        visited.add(step_id)
+        
+        # Find step by ID
+        step_map = {s.id: s for s in steps}
+        
+        for dep in dependencies:
+            if dep in step_map:
+                if self._check_circular(dep, step_map[dep].dependencies, steps, visited.copy()):
+                    return True
+        
+        return False
+    
+    async def get_plan_preview(self, plan: TaskPlan) -> Dict:
+        """
+        Get a human-readable preview of a task plan
+        
+        Args:
+            plan: The task plan
+            
+        Returns:
+            Dictionary with preview information
+        """
+        return {
+            "id": plan.id,
+            "intent": plan.intent,
+            "description": plan.description,
+            "complexity": plan.complexity.name.replace("_", " ").title(),
+            "estimated_duration": f"{plan.estimated_duration:.1f} seconds",
+            "step_count": len(plan.steps),
+            "required_apps": plan.required_apps,
+            "missing_requirements": plan.missing_requirements,
+            "steps": [
+                {
+                    "id": s.id,
+                    "action": s.action,
+                    "description": s.description,
+                    "dependencies": s.dependencies,
+                    "required_apps": s.required_apps
+                }
+                for s in plan.steps
+            ]
+        }

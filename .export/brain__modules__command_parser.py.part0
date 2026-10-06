@@ -497,8 +497,8 @@ class CommandParser:
         # Known apps
         known_apps = {
             'youtube': 'com.google.android.youtube',
-            'chatgpt': 'com.chatgpt',
-            'deepseek': 'com.deepseek',
+            'chatgpt': 'com.openai.chatgpt',
+            'deepseek': 'com.deepseek.app',
             'grok': 'com.grok',
             'kinemaster': 'com.kinemaster',
             'whatsapp': 'com.whatsapp',
@@ -851,5 +851,4 @@ class CommandParser:
         elif intent == IntentType.SEARCH:
             parameters["query"] = self._find_entity_value(entities, EntityType.TEXT)
             parameters["query"] = parameters["query"] or self._find_entity_value(entities, EntityType.TOPIC)
-            parameters["sources"] = self._find_all_entities(entities, EntityType.PLATFORM)
-       
+            parameters["sources"] = self._find_all_entities(entities, EntityType.PLATFO
