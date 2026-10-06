@@ -1,0 +1,59 @@
+name: Export large file chunks
+
+# Keeps fetchable copies of files that are too large for the local
+# fetch pipeline. Runs only when one of the watched files (or this
+# workflow itself) changes on main. The bot commit contains [skip ci]
+# so the export never loops.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'brain/core/execution_controller.py'
+      - 'brain/modules/command_parser.py'
+      - 'brain/learning/learning_manager.py'
+      - 'brain/modules/accessibility_controller.py'
+      - '.github/workflows/export-chunks.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Split large files into fetchable chunks
+        run: |
+          mkdir -p .export
+          python3 - <<'PYEOF'
+          import pathlib
+          files = [
+              "brain/core/execution_controller.py",
+              "brain/modules/command_parser.py",
+              "brain/learning/learning_manager.py",
+              "brain/modules/accessibility_controller.py",
+          ]
+          CHUNK = 30000
+          for f in files:
+              p = pathlib.Path(f)
+              if not p.exists():
+                  continue
+              data = p.read_bytes()
+              base = ".export/" + f.replace("/", "__")
+              for i in range(0, len(data), CHUNK):
+                  pathlib.Path(base + ".part" + str(i // CHUNK)).write_bytes(data[i:i+CHUNK])
+          PYEOF
+
+      - name: Commit chunks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .export
+          if git diff --cached --quiet; then
+            echo "no chunk changes"
+            exit 0
+          fi
+          git commit -m "chore: refresh large-file export chunks [skip ci]"
+          git push
