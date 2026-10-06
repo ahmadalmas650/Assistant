@@ -1,4 +1,76 @@
- 
+,
+            "status": "captured"
+        }
+    
+    async def _handle_save_screenshot(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Handle saving a screenshot (honest: image capture not supported)."""
+        raise RuntimeError(
+            "save_screenshot is not available: the Bridge APK does not "
+            "capture screen images. Use capture_screen for live screen "
+            "text instead."
+        )
+    
+    async def _handle_run_ocr(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Run real live screen OCR through the accessibility tree."""
+        if self._ocr_engine is None:
+            raise RuntimeError(
+                "run_ocr is not available: the OCR engine is not wired "
+                "into the ExecutionController"
+            )
+        
+        ocr_result = await self._ocr_engine.extract_text_from_screen()
+        
+        if not ocr_result.ok:
+            raise RuntimeError(
+                f"Live screen OCR failed: {getattr(ocr_result, 'error', 'unknown error')}"
+            )
+        
+        text = str(getattr(ocr_result, "text", ""))
+        return {
+            "action": "run_ocr",
+            "text": text,
+            "language": "live-screen",
+            "confidence": float(getattr(ocr_result, "confidence", 0.0)),
+            "processing_time": float(getattr(ocr_result, "processing_time", 0.0)),
+            "status": "completed"
+        }
+    
+    async def _handle_return_text(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Return the real text produced by a dependency step."""
+        dep_result = self._dep_result(step, step_map, "text", "screen_text")
+        
+        if dep_result:
+            text = str(dep_result.get("text") or dep_result.get("screen_text") or "")
+            if text:
+                return {
+                    "action": "return_text",
+                    "text": text,
+                    "source": dep_result.get("action", "dependency"),
+                    "status": "returned"
+                }
+        
+        raise ValueError("return_text found no text in any dependency step")
+    
+    async def _handle_generic_step(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Generic handler for unknown steps (honest, never simulated)."""
+        self.logger.warning(f"No specific handler for action: {step.action}")
+        
+        return {
+            "action": step.action,
+            "status": "not_implemented",
+            "message": f"Action '{step.action}' has no real implementation yet"
+        }
+    
+    # Control Methods
+    
+    async def stop_current_task(self) -> bool:
+        """Stop the currently executing task"""
+        if self._current_execution:
+            self._stop_event.set()
+            self.logger.info("Stop signal sent to current execution")
+            return True
+        return False
+    
     async def pause_current_task(self) -> bool:
         """Pause the currently executing task"""
         if self._current_execution:
@@ -24,13 +96,31 @@
         return False
     
     async def _apply_modification(self, original_plan: TaskPlan, modification: str) -> TaskPlan:
-        """Apply modification to a plan"""
-        # This is a simplified implementation
-        # A full implementation would parse the modification and update the plan
+        """Apply a modification request to a running plan.
         
+        The modification text is recorded on the plan metadata so later
+        processing can react to it. No step is silently changed: if the
+        modification cannot be mapped to concrete steps, the original
+        plan keeps running unchanged and the request stays visible.
+        """
         self.logger.info(f"Applying modification: {modification}")
         
-        # For now, just return the original plan
+        try:
+            metadata = getattr(original_plan, "metadata", None)
+            if isinstance(metadata, dict):
+                requests = metadata.setdefault("modification_requests", [])
+                if isinstance(requests, list):
+                    requests.append({
+                        "text": modification,
+                        "timestamp": time.time()
+                    })
+            else:
+                self.logger.warning(
+                    "Plan has no metadata dict; modification recorded in log only"
+                )
+        except Exception as e:
+            self.error_handler.handle_error(e, "apply_modification")
+        
         return original_plan
     
     def _get_final_output(self, plan: TaskPlan, step_results: List[StepExecutionResult]) -> Any:
