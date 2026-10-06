@@ -1,0 +1,170 @@
+     
+        elif intent == IntentType.SEND:
+            parameters["recipient"] = self._find_entity_value(entities, EntityType.EMAIL)
+            parameters["recipient"] = parameters["recipient"] or self._find_entity_value(entities, EntityType.PHONE)
+            parameters["content"] = self._find_entity_value(entities, EntityType.TEXT)
+            parameters["app"] = self._find_entity_value(entities, EntityType.APP)
+            
+        elif intent == IntentType.CAPTURE:
+            parameters["type"] = "screenshot"
+            
+        elif intent == IntentType.EXTRACT:
+            parameters["source"] = self._find_entity_value(entities, EntityType.IMAGE)
+            parameters["source"] = parameters["source"] or self._find_entity_value(entities, EntityType.FILE)
+            parameters["method"] = "ocr"
+        
+        # Add generic parameters
+        parameters["text"] = text
+        parameters["intent"] = intent.name.lower()
+        
+        return parameters
+    
+    def _find_entity_value(self, entities: Dict[str, ExtractedEntity], 
+                          entity_type: EntityType) -> Optional[str]:
+        """Find first entity of a specific type"""
+        for entity in entities.values():
+            if entity.entity_type == entity_type:
+                return entity.value
+        return None
+    
+    def _find_all_entities(self, entities: Dict[str, ExtractedEntity], 
+                          entity_type: EntityType) -> List[str]:
+        """Find all entities of a specific type"""
+        return [e.value for e in entities.values() if e.entity_type == entity_type]
+    
+    def _get_context(self, text: str, intent: IntentType, 
+                    entities: Dict[str, ExtractedEntity]) -> Dict:
+        """Get context information for the command"""
+        context = {
+            "text_length": len(text),
+            "word_count": len(text.split()),
+            "intent": intent.name,
+            "entity_count": len(entities),
+            "entity_types": [e.entity_type.name for e in entities.values()]
+        }
+        
+        # Add recent command context
+        if self._recent_commands:
+            context["recent_intents"] = [c.intent.name for c in self._recent_commands[-3:]]
+        
+        return context
+    
+    def _validate_command(self, intent: IntentType, 
+                         entities: Dict[str, ExtractedEntity]) -> bool:
+        """Validate that the command has required information"""
+        if intent == IntentType.UNKNOWN:
+            return False
+        
+        # Check for required entities based on intent
+        required = {
+            IntentType.UPLOAD: [EntityType.FILE],
+            IntentType.EDIT: [EntityType.FILE, EntityType.IMAGE, EntityType.VIDEO],
+            IntentType.SEND: [EntityType.EMAIL, EntityType.PHONE],
+            IntentType.SEARCH: [EntityType.TEXT, EntityType.TOPIC]
+        }
+        
+        if intent in required:
+            for entity_type in required[intent]:
+                if not any(e.entity_type == entity_type for e in entities.values()):
+                    # Not all required entities present
+                    return False
+        
+        return True
+    
+    def _add_to_history(self, parsed: ParsedCommand):
+        """Add parsed command to history"""
+        self._recent_commands.append(parsed)
+        if len(self._recent_commands) > self._max_history:
+            self._recent_commands = self._recent_commands[-self._max_history:]
+    
+    def get_recent_commands(self, count: int = 10) -> List[ParsedCommand]:
+        """Get recent commands"""
+        return self._recent_commands[-count:]
+    
+    def clear_history(self):
+        """Clear command history"""
+        self._recent_commands = []
+    
+    async def learn_from_feedback(self, command: str, correct_intent: IntentType, 
+                                correct_entities: Dict[str, str]) -> bool:
+        """
+        Learn from user feedback to improve parsing
+        
+        Args:
+            command: The original command text
+            correct_intent: The correct intent
+            correct_entities: Dictionary of correct entity type -> value
+            
+        Returns:
+            True if learning was successful
+        """
+        try:
+            # In a real implementation, this would update the parsing models
+            # For now, just log the feedback
+            self.logger.info(f"Learning from feedback: '{command}' -> {correct_intent.name}")
+            
+            # Add to knowledge base
+            await self.knowledge_base.store_command_pattern(
+                command, correct_intent, correct_entities
+            )
+            
+            return True
+        except Exception as e:
+            self.error_handler.handle_error(e, "learn_from_feedback")
+            return False
+    
+    async def get_suggestions(self, partial_text: str) -> List[str]:
+        """
+        Get suggestions for auto-completion
+        
+        Args:
+            partial_text: The partial command text
+            
+        Returns:
+            List of suggested completions
+        """
+        suggestions = []
+        
+        # Simple suggestions based on intent patterns
+        for intent, patterns in self._intent_patterns.items():
+            for pattern, _ in patterns:
+                if re.search(pattern, partial_text, re.IGNORECASE):
+                    # Suggest common completions for this intent
+                    completions = self._get_intent_completions(intent)
+                    suggestions.extend(completions)
+        
+        # Remove duplicates
+        suggestions = list(set(suggestions))
+        
+        return suggestions
+    
+    def _get_intent_completions(self, intent: IntentType) -> List[str]:
+        """Get common completions for an intent"""
+        completions = {
+            IntentType.UPLOAD: [
+                " to YouTube",
+                " to Google Drive",
+                " this video",
+                " this file"
+            ],
+            IntentType.EDIT: [
+                " this photo",
+                " this video",
+                " in Kinemaster",
+                " with filters"
+            ],
+            IntentType.SEARCH: [
+                " on Google",
+                " on YouTube",
+                " for information",
+                " about this"
+            ],
+            IntentType.SEND: [
+                " to my friend",
+                " via WhatsApp",
+                " an email",
+                " a message"
+            ]
+        }
+        
+        return completions.get(intent, [])

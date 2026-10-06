@@ -1,0 +1,171 @@
+ 
+    async def pause_current_task(self) -> bool:
+        """Pause the currently executing task"""
+        if self._current_execution:
+            self._pause_event.set()
+            self.logger.info("Pause signal sent to current execution")
+            return True
+        return False
+    
+    async def resume_current_task(self) -> bool:
+        """Resume the paused task"""
+        if self._current_execution:
+            self._pause_event.clear()
+            self.logger.info("Resume signal sent to current execution")
+            return True
+        return False
+    
+    async def modify_current_task(self, modification: str) -> bool:
+        """Request modification of current task"""
+        if self._current_execution:
+            self._modification_request = modification
+            self.logger.info(f"Modification requested: {modification}")
+            return True
+        return False
+    
+    async def _apply_modification(self, original_plan: TaskPlan, modification: str) -> TaskPlan:
+        """Apply modification to a plan"""
+        # This is a simplified implementation
+        # A full implementation would parse the modification and update the plan
+        
+        self.logger.info(f"Applying modification: {modification}")
+        
+        # For now, just return the original plan
+        return original_plan
+    
+    def _get_final_output(self, plan: TaskPlan, step_results: List[StepExecutionResult]) -> Any:
+        """Get the final output from step results"""
+        if not step_results:
+            return None
+        
+        # Return the last successful step's output
+        for result in reversed(step_results):
+            if result.status == StepStatus.COMPLETED:
+                return result.output
+        
+        return None
+    
+    async def stop_all_tasks(self) -> int:
+        """Stop all active tasks"""
+        count = 0
+        
+        # Stop current execution
+        if self._current_execution:
+            self._stop_event.set()
+            count += 1
+        
+        # Cancel queued tasks
+        self._execution_queue = []
+        
+        # Cancel active tasks
+        for task_id, task in self._active_tasks.items():
+            if not task.done():
+                task.cancel()
+                count += 1
+        
+        self._active_tasks = {}
+        
+        self.logger.info(f"Stopped {count} tasks")
+        return count
+    
+    # Callback Registration
+    
+    def on_step_complete(self, callback: Callable):
+        """Register step completion callback"""
+        self._on_step_complete.append(callback)
+    
+    def on_execution_start(self, callback: Callable):
+        """Register execution start callback"""
+        self._on_execution_start.append(callback)
+    
+    def on_execution_complete(self, callback: Callable):
+        """Register execution complete callback"""
+        self._on_execution_complete.append(callback)
+    
+    # Utility Methods
+    
+    def get_current_execution(self) -> Optional[Dict]:
+        """Get current execution status"""
+        return self._current_execution
+    
+    def get_queue_status(self) -> List[Dict]:
+        """Get execution queue status"""
+        return [
+            {
+                "plan_id": plan.id,
+                "intent": plan.intent,
+                "description": plan.description,
+                "complexity": plan.complexity.name,
+                "queued_at": time.time()
+            }
+            for plan in self._execution_queue
+        ]
+    
+    def get_active_tasks(self) -> List[Dict]:
+        """Get list of active tasks"""
+        return [
+            {
+                "task_id": task_id,
+                "status": "running" if not task.done() else "completed",
+                "done": task.done()
+            }
+            for task_id, task in self._active_tasks.items()
+        ]
+    
+    async def execute_in_background(self, plan: TaskPlan) -> str:
+        """
+        Execute a task in the background
+        
+        Args:
+            plan: The task plan to execute
+            
+        Returns:
+            Task ID for tracking
+        """
+        task_id = str(uuid.uuid4())
+        
+        async def background_execution():
+            try:
+                result = await self.execute(plan)
+                self.logger.info(f"Background task {task_id} completed")
+                return result
+            except Exception as e:
+                self.logger.error(f"Background task {task_id} failed: {str(e)}")
+                return ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    plan_id=plan.id,
+                    error=str(e)
+                )
+        
+        task = asyncio.create_task(background_execution())
+        self._active_tasks[task_id] = task
+        
+        self.logger.info(f"Started background task: {task_id}")
+        return task_id
+    
+    async def get_background_task_status(self, task_id: str) -> Optional[Dict]:
+        """Get status of a background task"""
+        task = self._active_tasks.get(task_id)
+        if not task:
+            return None
+        
+        if task.done():
+            try:
+                result = task.result()
+                return {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "result": result.to_dict() if hasattr(result, 'to_dict') else result
+                }
+            except Exception as e:
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": str(e)
+                }
+        else:
+            return {
+                "task_id": task_id,
+                "status": "running",
+                "started_at": time.time()
+            }

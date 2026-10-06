@@ -1,0 +1,193 @@
+          message=f"Failed to open app {package_name}: {e}",
+                data={"package_name": package_name}
+            )
+    
+    async def _handle_close_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+        """Handle close app action (sends the app to background via HOME)"""
+        package_name = kwargs.get("package_name", "")
+        
+        if not package_name:
+            current_app = await self.get_foreground_app()
+            package_name = current_app or "unknown"
+        
+        self.logger.info(f"Closing app (background): {package_name}")
+        
+        try:
+            data = await self.bridge.press_home()
+            return ActionResult(
+                action=AccessibilityAction.CLOSE_APP,
+                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                message=f"Sent app to background: {package_name}",
+                data={"package_name": package_name}
+            )
+        except BridgeError as e:
+            return ActionResult(
+                action=AccessibilityAction.CLOSE_APP,
+                success=False,
+                message=f"Failed to close app {package_name}: {e}",
+                data={"package_name": package_name}
+            )
+    
+    async def _handle_switch_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+        """Handle switch app action (launch via bridge or open recents)"""
+        package_name = kwargs.get("package_name", "")
+        
+        try:
+            if package_name:
+                self.logger.info(f"Switching to app: {package_name}")
+                data = await self.bridge.launch_app(package_name)
+                message = f"Switched to app: {package_name}"
+            else:
+                self.logger.info("Opening recents overview")
+                data = await self.bridge.press_recents()
+                message = "Opened recents overview"
+            return ActionResult(
+                action=AccessibilityAction.SWITCH_APP,
+                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                message=message,
+                data={"package_name": package_name, "bridge": data}
+            )
+        except BridgeError as e:
+            return ActionResult(
+                action=AccessibilityAction.SWITCH_APP,
+                success=False,
+                message=f"Switch app failed: {e}",
+                data={"package_name": package_name}
+            )
+    
+    async def _handle_screenshot(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+        """Screenshots are intentionally disabled - JARVIS reads the live screen
+        through the accessibility service instead (see EXTRACT_TEXT)."""
+        self.logger.info("Screenshot requested but disabled by design")
+        return ActionResult(
+            action=AccessibilityAction.TAKE_SCREENSHOT,
+            success=False,
+            message="Screenshots are disabled; JARVIS reads live screen text via accessibility (EXTRACT_TEXT)"
+        )
+    
+    async def _handle_extract_text(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+        """Handle text extraction action (live via bridge)"""
+        try:
+            if node:
+                self.logger.info(f"Extracting text from node: {node.node_id}")
+                text_result = node.text
+            else:
+                self.logger.info("Extracting text from screen")
+                text_result = await self.bridge.get_screen_text()
+            return ActionResult(
+                action=AccessibilityAction.EXTRACT_TEXT,
+                success=True,
+                message="Extracted text from live screen",
+                node=node,
+                data={"text": text_result}
+            )
+        except BridgeError as e:
+            return ActionResult(
+                action=AccessibilityAction.EXTRACT_TEXT,
+                success=False,
+                message=f"Text extraction failed: {e}"
+            )
+    
+    async def _handle_get_nodes(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
+        """Handle get nodes action"""
+        nodes = await self.get_all_nodes(refresh=True)
+        
+        return ActionResult(
+            action=AccessibilityAction.GET_NODES,
+            success=True,
+            message=f"Retrieved {len(nodes)} nodes",
+            data={"nodes": [n.to_dict() for n in nodes]}
+        )
+    
+    # Convenience Methods
+    
+    async def click_text(self, text: str, exact: bool = False) -> ActionResult:
+        """Click on text"""
+        node = await self.find_node_by_text(text, exact)
+        if node:
+            return await self.perform_action(AccessibilityAction.CLICK, node)
+        else:
+            return ActionResult(
+                action=AccessibilityAction.CLICK,
+                success=False,
+                message=f"Text '{text}' not found"
+            )
+    
+    async def click_coordinates(self, x: int, y: int) -> ActionResult:
+        """Click at specific coordinates"""
+        return await self.perform_action(AccessibilityAction.CLICK, x=x, y=y)
+    
+    async def type_text(self, text: str) -> ActionResult:
+        """Type text"""
+        return await self.perform_action(AccessibilityAction.TYPE, text=text)
+    
+    async def swipe(self, direction: SwipeDirection, duration: int = 300) -> ActionResult:
+        """Perform a swipe"""
+        return await self.perform_action(AccessibilityAction.SWIPE, direction=direction, duration=duration)
+    
+    async def scroll(self, direction: ScrollDirection, amount: int = 100) -> ActionResult:
+        """Perform a scroll"""
+        return await self.perform_action(AccessibilityAction.SCROLL, direction=direction, amount=amount)
+    
+    async def open_app(self, package_name: str) -> ActionResult:
+        """Open an app"""
+        return await self.perform_action(AccessibilityAction.OPEN_APP, package_name=package_name)
+    
+    async def close_app(self, package_name: str = "") -> ActionResult:
+        """Close an app"""
+        return await self.perform_action(AccessibilityAction.CLOSE_APP, package_name=package_name)
+    
+    async def take_screenshot(self) -> ActionResult:
+        """Take a screenshot"""
+        return await self.perform_action(AccessibilityAction.TAKE_SCREENSHOT)
+    
+    async def extract_screen_text(self) -> ActionResult:
+        """Extract text from screen"""
+        return await self.perform_action(AccessibilityAction.EXTRACT_TEXT)
+    
+    async def press_back(self) -> ActionResult:
+        """Press back button"""
+        return await self.perform_action(AccessibilityAction.BACK)
+    
+    async def press_home(self) -> ActionResult:
+        """Press home button"""
+        return await self.perform_action(AccessibilityAction.HOME)
+    
+    async def press_recents(self) -> ActionResult:
+        """Press recents button"""
+        return await self.perform_action(AccessibilityAction.RECENTS)
+    
+    # Callback Registration
+    
+    def on_action_complete(self, callback: Callable[[ActionResult], None]):
+        """Register action completion callback"""
+        self._on_action_complete.append(callback)
+    
+    def on_service_state_change(self, callback: Callable[[bool], None]):
+        """Register service state change callback"""
+        self._on_service_state_change.append(callback)
+    
+    # Utility Methods
+    
+    def get_supported_actions(self) -> List[str]:
+        """Get list of supported actions"""
+        return [action.name for action in AccessibilityAction]
+    
+    def get_supported_apps(self) -> List[str]:
+        """Get list of supported apps"""
+        return self.config.allowed_apps if hasattr(self.config, 'allowed_apps') else []
+    
+    async def is_app_installed(self, package_name: str) -> bool:
+        """Check if an app is installed"""
+        return package_name in self.get_supported_apps()
+    
+    # Cleanup
+    
+    async def cleanup(self):
+        """Clean up resources"""
+        try:
+            await self.bridge.close()
+        except Exception as e:
+            self.logger.debug(f"Bridge close error: {e}")
+        self._node_cache = {}
+        self.logger.info("Accessibility Controller cleaned up")
