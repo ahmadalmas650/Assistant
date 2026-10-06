@@ -15,6 +15,7 @@ import hashlib
 
 from ..utils.logger import Logger
 from ..utils.error_handler import ErrorHandler
+from .cloud_memory import CloudMemory
 
 
 @dataclass
@@ -166,7 +167,13 @@ class KnowledgeBase:
             
         except Exception as e:
             self.error_handler.handle_error(e, "initialize_database")
-            self._connection.rollback()
+            connection = getattr(self, "_connection", None)
+            if connection is not None:
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+    
     
     async def _load_knowledge(self):
         """Load knowledge from database"""
@@ -483,23 +490,59 @@ class KnowledgeBase:
     # Cloud Sync
     
     async def sync_with_cloud(self) -> bool:
-        """Sync knowledge with cloud storage"""
+        """Sync knowledge with cloud storage (real: rclone via CloudMemory)"""
         try:
-            # In a real implementation, this would sync with cloud storage
-            # For now, just log
+            if self._cloud_memory is None:
+                self._cloud_memory = CloudMemory(self.config, self.logger)
+                await self._cloud_memory.initialize()
             
-            self.logger.info("Knowledge synced with cloud")
-            return True
+            items = [item.to_dict() for item in self._knowledge.values()]
+            success = await self._cloud_memory.sync_all(items)
+            
+            if success:
+                self.logger.info(
+                    f"Knowledge synced with cloud: {len(items)} item(s)"
+                )
+            else:
+                self.logger.warning(
+                    "Knowledge cloud sync did not complete; check the "
+                    "rclone remote configuration"
+                )
+            return success
             
         except Exception as e:
             self.error_handler.handle_error(e, "sync_with_cloud")
             return False
     
     async def load_from_cloud(self) -> bool:
-        """Load knowledge from cloud storage"""
+        """Load knowledge from cloud storage (real: rclone via CloudMemory)"""
         try:
-            # In a real implementation, this would load from cloud
-            self.logger.info("Knowledge loaded from cloud")
+            if self._cloud_memory is None:
+                self._cloud_memory = CloudMemory(self.config, self.logger)
+                await self._cloud_memory.initialize()
+            
+            downloaded = await self._cloud_memory.download_all()
+            if not downloaded:
+                self.logger.info("No knowledge items found in cloud storage")
+                return True
+            
+            loaded = 0
+            valid_fields = {
+                "id", "content", "category", "source", "confidence",
+                "timestamp", "tags", "references", "metadata"
+            }
+            for data in downloaded:
+                if not isinstance(data, dict) or "id" not in data:
+                    continue
+                fields = {k: v for k, v in data.items() if k in valid_fields}
+                if "content" not in fields:
+                    continue
+                item = KnowledgeItem(**fields)
+                self._add_to_knowledge(item)
+                await self._save_to_database(item)
+                loaded += 1
+            
+            self.logger.info(f"Loaded {loaded} knowledge item(s) from cloud")
             return True
             
         except Exception as e:
@@ -604,7 +647,7 @@ class KnowledgeBase:
                 INSERT OR REPLACE INTO knowledge_items 
                 (id, content, category, source, confidence, timestamp, 
                  tags, references, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item.id,
                 item.content,

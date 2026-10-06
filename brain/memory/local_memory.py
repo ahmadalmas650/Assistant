@@ -171,7 +171,7 @@ class LocalMemory:
                 INSERT OR REPLACE INTO memory_items 
                 (id, content, memory_type, category, tags, timestamp, expiration, 
                  priority, access_count, last_accessed, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item_dict["id"],
                 item_dict["content"],
@@ -291,7 +291,7 @@ class LocalMemory:
                     INSERT OR REPLACE INTO knowledge_base 
                     (id, content, category, source, confidence, timestamp, 
                      tags, references, usage_count, last_used, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     item.get("id", ""),
                     item.get("content", ""),

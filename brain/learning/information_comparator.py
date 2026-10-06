@@ -206,9 +206,7 @@ class InformationComparator:
     
     def _compare_relevance(self, info1: Any, info2: Any,
                           source1: str, source2: str) -> Comparison:
-        """Compare by relevance to each other"""
-        # This is a simplified implementation
-        # In a real system, we would have context about what we're comparing for
+        """Compare by relevance to each other (real word-overlap metric)"""
         
         str1 = str(info1)
         str2 = str(info2)
@@ -241,20 +239,25 @@ class InformationComparator:
     
     def _compare_accuracy(self, info1: Any, info2: Any,
                          source1: str, source2: str) -> Comparison:
-        """Compare by accuracy (requires reference data)"""
-        # This is a placeholder - accuracy comparison would require
-        # reference data or fact-checking against known sources
+        """Compare by accuracy (honest: not measurable without reference data)"""
+        self.logger.warning(
+            "Accuracy comparison not measured: no reference data is "
+            "available on this device"
+        )
         
-        # For now, return neutral comparison
         return Comparison(
             item1=info1,
             item2=info2,
             source1=source1,
             source2=source2,
             metric=ComparisonMetric.ACCURACY,
-            score=0.5,
+            score=0.0,
             result=ComparisonResult.DIFFERENT,
-            details={"note": "Accuracy comparison requires reference data"}
+            details={
+                "available": False,
+                "note": "Accuracy comparison requires reference data; "
+                        "no score was measured"
+            }
         )
     
     def _compare_completeness(self, info1: Any, info2: Any,

@@ -303,7 +303,8 @@ class KnowledgeMerger:
         normalized_texts = []
         for text, weight in weighted_texts:
             normalized_weight = weight / total_weight
-            # Repeat text based on weight (simplified)
+            # Keep only the dominant source(s): texts holding more than
+            # half of the total reliability weight
             if normalized_weight > 0.5:
                 normalized_texts.append(text)
         
@@ -513,8 +514,8 @@ class KnowledgeMerger:
             return values[best_source]
         
         elif resolution == ConflictResolution.KEEP_HIGHEST_CONFIDENCE:
-            # This would require confidence data in values
-            # For now, fallback to most reliable
+            # Confidence data is not attached to values in this merger,
+            # so the honest fallback is the most reliable source
             return self._resolve_conflict(field, values, ConflictResolution.KEEP_MOST_RELIABLE)
         
         elif resolution == ConflictResolution.MERGE:
