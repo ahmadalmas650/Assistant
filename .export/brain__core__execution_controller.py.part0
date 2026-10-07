@@ -605,7 +605,7 @@ class ExecutionController:
         if bridge is not None and hasattr(bridge, "launch_app_by_name"):
             launch_data = await bridge.launch_app_by_name(str(app))
         
-        if not (isinstance(launch_data, dict) and launch_data.get("success")):
+        if not (isinstance(launch_data, dict) and launch_data.get("ok")):
             raise RuntimeError(
                 f"Could not launch '{app}' via the launcher search; it may "
                 f"not be installed or the launcher search was unavailable"
@@ -767,4 +767,5 @@ class ExecutionController:
         
         return {
             "action": "capture_screen",
-            "screen_text": text
+            "screen_text": text,
+   

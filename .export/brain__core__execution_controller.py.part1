@@ -1,5 +1,4 @@
-,
-            "status": "captured"
+         "status": "captured"
         }
     
     async def _handle_save_screenshot(self, step: TaskStep, step_map: Dict) -> Dict:

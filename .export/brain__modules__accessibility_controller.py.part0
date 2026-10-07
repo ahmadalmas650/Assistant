@@ -231,7 +231,9 @@ class AccessibilityController:
         
         opened = False
         try:
-            await self.bridge.launch_app("com.android.settings")
+            # Human-style: open Settings through the launcher search, never
+            # by package name.
+            await self.bridge.launch_app_by_name("Settings")
             opened = True
             self.logger.info("Opened Settings - enable the JARVIS Accessibility Service")
         except BridgeError as e:
@@ -744,28 +746,23 @@ class AccessibilityController:
         )
     
     async def _handle_open_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
-        """Handle open app action (live via bridge)"""
+        """Handle open app action (human-style via launcher search)."""
+        app_name = kwargs.get("app_name", "")
         package_name = kwargs.get("package_name", "")
         
-        if not package_name:
+        if not app_name:
             return ActionResult(
                 action=AccessibilityAction.OPEN_APP,
                 success=False,
-                message="No package name provided"
+                message=(
+                    "No app name provided. Apps are only launched by their "
+                    "visible name through the launcher search; package-based "
+                    "launching is not supported"
+                    if not package_name else
+                    "Package-based launching is disabled: pass app_name and "
+                    "the app will be opened through the launcher search like "
+                    "a human does"
+                )
             )
         
-        self.logger.info(f"Opening app: {package_name}")
-        
-        try:
-            data = await self.bridge.launch_app(package_name)
-            return ActionResult(
-                action=AccessibilityAction.OPEN_APP,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
-                message=f"Opened app: {package_name}",
-                data={"package_name": package_name, "bridge": data}
-            )
-        except BridgeError as e:
-            return ActionResult(
-                action=AccessibilityAction.OPEN_APP,
-                success=False,
-      
+        self.log
