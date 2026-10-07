@@ -499,8 +499,8 @@ class CommandParser:
             'youtube': 'com.google.android.youtube',
             'chatgpt': 'com.openai.chatgpt',
             'deepseek': 'com.deepseek.app',
-            'grok': 'com.grok',
-            'kinemaster': 'com.kinemaster',
+            'grok': 'ai.x.grok',
+            'kinemaster': 'com.nexstreaming.app.kinemasterfree',
             'whatsapp': 'com.whatsapp',
             'chrome': 'com.android.chrome',
             'gallery': 'com.android.gallery3d',
@@ -851,4 +851,4 @@ class CommandParser:
         elif intent == IntentType.SEARCH:
             parameters["query"] = self._find_entity_value(entities, EntityType.TEXT)
             parameters["query"] = parameters["query"] or self._find_entity_value(entities, EntityType.TOPIC)
-            parameters["sources"] = self._find_all_entities(entities, EntityType.PLATFO
+            parameters["sources"] = self._find_all_entities(entit

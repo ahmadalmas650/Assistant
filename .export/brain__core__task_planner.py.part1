@@ -1,4 +1,7 @@
-for missing dependencies
+(plan.steps):
+            errors.append("Circular dependencies detected")
+        
+        # Check for missing dependencies
         step_ids = {s.id for s in plan.steps}
         for step in plan.steps:
             for dep in step.dependencies:

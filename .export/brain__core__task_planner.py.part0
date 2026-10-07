@@ -139,7 +139,7 @@ class TaskPlanner:
                     {
                         "action": "edit_if_needed",
                         "description": "Edit video if required",
-                        "required_apps": ["com.kinemaster"],
+                        "required_apps": ["com.nexstreaming.app.kinemasterfree"],
                         "dependencies": ["check_metadata"],
                         "parameters": {"auto_edit": True}
                     },
@@ -166,7 +166,7 @@ class TaskPlanner:
                 ],
                 "required_apps": [
                     "com.google.android.youtube",
-                    "com.kinemaster"
+                    "com.nexstreaming.app.kinemasterfree"
                 ],
                 "complexity": TaskComplexity.HIGH,
                 "estimated_duration": 300.0
@@ -185,7 +185,7 @@ class TaskPlanner:
                     {
                         "action": "open_editor",
                         "description": "Open photo in editor",
-                        "required_apps": ["com.kinemaster", "photo_editor"],
+                        "required_apps": ["com.nexstreaming.app.kinemasterfree", "photo_editor"],
                         "dependencies": ["select_file"],
                         "parameters": {"auto_edit": False}
                     },
@@ -219,13 +219,13 @@ class TaskPlanner:
                     {
                         "action": "search_chatgpt",
                         "description": "Search in ChatGPT",
-                        "required_apps": ["com.chatgpt"],
+                        "required_apps": ["com.openai.chatgpt"],
                         "dependencies": ["extract_query"]
                     },
                     {
                         "action": "search_deepseek",
                         "description": "Search in DeepSeek",
-                        "required_apps": ["com.deepseek"],
+                        "required_apps": ["com.deepseek.app"],
                         "dependencies": ["extract_query"]
                     },
                     {
@@ -237,7 +237,7 @@ class TaskPlanner:
                     {
                         "action": "search_grok",
                         "description": "Search in Grok",
-                        "required_apps": ["com.grok"],
+                        "required_apps": ["ai.x.grok"],
                         "dependencies": ["extract_query"]
                     },
                     {
@@ -259,10 +259,10 @@ class TaskPlanner:
                     }
                 ],
                 "required_apps": [
-                    "com.chatgpt",
-                    "com.deepseek",
+                    "com.openai.chatgpt",
+                    "com.deepseek.app",
                     "com.google.android.youtube",
-                    "com.grok"
+                    "ai.x.grok"
                 ],
                 "complexity": TaskComplexity.MEDIUM,
                 "estimated_duration": 60.0
@@ -670,7 +670,7 @@ class TaskPlanner:
                 )
             ])
             self._step_counter += 3
-            required_apps = ["com.chatgpt", "com.deepseek", "com.google.android.youtube", "com.grok"]
+            required_apps = ["com.openai.chatgpt", "com.deepseek.app", "com.google.android.youtube", "ai.x.grok"]
             
         elif intent in ["screenshot", "capture", "read_screen"]:
             steps.append(TaskStep(
@@ -790,7 +790,4 @@ class TaskPlanner:
         errors = []
         
         # Check for circular dependencies
-        if self._has_circular_dependencies(plan.steps):
-            errors.append("Circular dependencies detected")
-        
-        # Check 
+        if self._has_circular_dependencies

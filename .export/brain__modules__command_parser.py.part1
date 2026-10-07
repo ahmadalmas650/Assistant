@@ -1,4 +1,4 @@
-RM)
+ies, EntityType.PLATFORM)
             
         elif intent == IntentType.SEND:
             parameters["recipient"] = self._find_entity_value(entities, EntityType.EMAIL)
