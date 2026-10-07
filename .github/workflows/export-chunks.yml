@@ -13,6 +13,7 @@ on:
       - 'brain/modules/command_parser.py'
       - 'brain/learning/learning_manager.py'
       - 'brain/modules/accessibility_controller.py'
+      - 'brain/modules/app_integrator.py'
       - 'brain/core/task_planner.py'
       - '.github/workflows/export-chunks.yml'
 
@@ -35,6 +36,7 @@ jobs:
               "brain/modules/command_parser.py",
               "brain/learning/learning_manager.py",
               "brain/modules/accessibility_controller.py",
+              "brain/modules/app_integrator.py",
               "brain/core/task_planner.py",
           ]
           CHUNK = 30000
