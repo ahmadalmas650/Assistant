@@ -1,0 +1,92 @@
+words1 = set(text1.split())
+        words2 = set(text2.split())
+
+        if not words1 or not words2:
+            return 0.0
+
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+
+        return intersection / union if union > 0 else 0.0
+
+    # Multi-source Learning
+
+    async def learn_from_all_sources(self, topic: str) -> Dict:
+        """
+        Learn about a topic from all installed, verified sources.
+
+        Args:
+            topic: The topic to learn
+
+        Returns:
+            Comprehensive learning result built from real screen reads
+        """
+        ai_apps = self.get_apps_by_category(AppCategory.AI_ASSISTANT)
+        ai_app_packages = [app.package_name for app in ai_apps if app.is_installed]
+
+        browsers = self.get_apps_by_category(AppCategory.BROWSER)
+        browser_packages = [app.package_name for app in browsers if app.is_installed]
+
+        all_sources = ai_app_packages + browser_packages
+
+        results = await self.learn_from_sources(topic, all_sources)
+        merged = await self.merge_results(results, topic)
+
+        merged["learning"] = {
+            "topic": topic,
+            "sources_used": list(results.keys()),
+            "sources_available": all_sources,
+            "knowledge_gained": len(merged["merged_text"]),
+            "timestamp": time.time()
+        }
+
+        return merged
+
+    # Callback Registration
+
+    def on_app_action_complete(self, callback: Callable[[AppResult], None]):
+        """Register app action completion callback"""
+        self._on_app_action_complete.append(callback)
+
+    def on_app_discovered(self, callback: Callable[[AppInfo], None]):
+        """Register app discovery callback"""
+        self._on_app_discovered.append(callback)
+
+    # Utility Methods
+
+    def get_all_apps(self) -> List[AppInfo]:
+        """Get all registered apps"""
+        return list(self._app_registry.values())
+
+    def get_categories(self) -> List[AppCategory]:
+        """Get all app categories"""
+        return list(self._category_map.keys())
+
+    def get_capabilities(self) -> List[str]:
+        """Get all unique capabilities"""
+        capabilities = set()
+        for app in self._app_registry.values():
+            capabilities.update(app.capabilities)
+        return list(capabilities)
+
+    def get_active_queries(self) -> List[AppQuery]:
+        """Get list of active queries"""
+        return list(self._active_queries.values())
+
+    async def cancel_query(self, query_id: str) -> bool:
+        """Cancel an active query"""
+        if query_id in self._active_queries:
+            del self._active_queries[query_id]
+            self.logger.info("Query cancelled: %s" % query_id)
+            return True
+        return False
+
+    # Cleanup
+
+    async def cleanup(self):
+        """Clean up resources"""
+        self._active_queries = {}
+        self._query_counter = 0
+        if self._owns_bridge:
+            await self.bridge.cleanup()
+        self.logger.info("App Integrator cleaned up")
