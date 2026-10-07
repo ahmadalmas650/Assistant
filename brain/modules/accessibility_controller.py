@@ -231,11 +231,13 @@ class AccessibilityController:
         
         opened = False
         try:
-            # Human-style: open Settings through the launcher search, never
-            # by package name.
-            await self.bridge.launch_app_by_name("Settings")
-            opened = True
-            self.logger.info("Opened Settings - enable the JARVIS Accessibility Service")
+            result = await self.bridge.launch_app_by_name("Settings")
+            opened = bool(isinstance(result, dict) and result.get("ok"))
+            if opened:
+                self.logger.info("Opened Settings - enable the JARVIS Accessibility Service")
+            else:
+                reason = result.get("error", "unknown error") if isinstance(result, dict) else "unexpected bridge reply"
+                self.logger.error(f"Launcher search could not open Settings: {reason}")
         except BridgeError as e:
             self.logger.error(f"Cannot open Settings without the Bridge APK: {e}")
         
@@ -495,7 +497,7 @@ class AccessibilityController:
                 message = f"Clicked at ({x}, {y})"
             return ActionResult(
                 action=AccessibilityAction.CLICK,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=message,
                 node=node,
                 data=data if isinstance(data, dict) else {}
@@ -522,7 +524,7 @@ class AccessibilityController:
             data = await self.bridge.click_coordinates(int(x), int(y))
             return ActionResult(
                 action=AccessibilityAction.DOUBLE_CLICK,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Double clicked at ({x}, {y})",
                 node=node
             )
@@ -569,7 +571,7 @@ class AccessibilityController:
             data = await self.bridge.swipe(start[0], start[1], end[0], end[1], int(duration))
             return ActionResult(
                 action=AccessibilityAction.SWIPE,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Swiped {direction.name} in {duration}ms",
                 data={"start": start, "end": end, "duration": duration, "bridge": data}
             )
@@ -600,7 +602,7 @@ class AccessibilityController:
             data = await self.bridge.swipe(cx, start_y, cx, end_y, 300)
             return ActionResult(
                 action=AccessibilityAction.SCROLL,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Scrolled {direction.name} by {amount} pixels",
                 data={"direction": direction.name, "amount": amount}
             )
@@ -625,7 +627,7 @@ class AccessibilityController:
             data = await self.bridge.input_text(text, node_text=node.text if node else None)
             return ActionResult(
                 action=AccessibilityAction.TYPE,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Typed: {text}",
                 data={"text": text, "length": len(text), "bridge": data}
             )
@@ -650,7 +652,7 @@ class AccessibilityController:
             data = await self.bridge.input_text(text, node_text=node.text if node else None)
             return ActionResult(
                 action=AccessibilityAction.PASTE,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Pasted {len(text)} characters",
                 data={"text": text, "length": len(text), "bridge": data}
             )
@@ -669,7 +671,7 @@ class AccessibilityController:
             data = await self.bridge.press_back()
             return ActionResult(
                 action=AccessibilityAction.BACK,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message="Back button pressed"
             )
         except BridgeError as e:
@@ -686,7 +688,7 @@ class AccessibilityController:
             data = await self.bridge.press_home()
             return ActionResult(
                 action=AccessibilityAction.HOME,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message="Home button pressed"
             )
         except BridgeError as e:
@@ -703,7 +705,7 @@ class AccessibilityController:
             data = await self.bridge.press_recents()
             return ActionResult(
                 action=AccessibilityAction.RECENTS,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message="Recents button pressed"
             )
         except BridgeError as e:
@@ -746,34 +748,39 @@ class AccessibilityController:
         )
     
     async def _handle_open_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
-        """Handle open app action (human-style via launcher search)."""
-        app_name = kwargs.get("app_name", "")
-        package_name = kwargs.get("package_name", "")
-        
+        """Handle open app action.
+
+        Launches the app the way a human does: the Bridge APK goes to the
+        home screen, opens the launcher search, types the app's visible
+        name and clicks the icon. Package names are never used.
+        """
+        app_name = kwargs.get("app_name", "") or kwargs.get("package_name", "")
+
         if not app_name:
             return ActionResult(
                 action=AccessibilityAction.OPEN_APP,
                 success=False,
-                message=(
-                    "No app name provided. Apps are only launched by their "
-                    "visible name through the launcher search; package-based "
-                    "launching is not supported"
-                    if not package_name else
-                    "Package-based launching is disabled: pass app_name and "
-                    "the app will be opened through the launcher search like "
-                    "a human does"
-                )
+                message="No app name provided"
             )
-        
-        self.logger.info(f"Opening app by name: {app_name}")
-        
+
+        self.logger.info(f"Opening app via launcher search: {app_name}")
+
         try:
             data = await self.bridge.launch_app_by_name(app_name)
+            opened = bool(isinstance(data, dict) and data.get("ok"))
+            if opened:
+                return ActionResult(
+                    action=AccessibilityAction.OPEN_APP,
+                    success=True,
+                    message=f"Opened app: {app_name}",
+                    data={"app_name": app_name, "package": data.get("package"), "bridge": data}
+                )
+            reason = data.get("error", "unknown error") if isinstance(data, dict) else "unexpected bridge reply"
             return ActionResult(
                 action=AccessibilityAction.OPEN_APP,
-                success=bool(data.get("ok")) if isinstance(data, dict) else False,
-                message=f"Opened app: {app_name}",
-                data={"app_name": app_name, "bridge": data}
+                success=False,
+                message=f"Could not open app {app_name}: {reason}",
+                data={"app_name": app_name}
             )
         except BridgeError as e:
             return ActionResult(
@@ -797,7 +804,7 @@ class AccessibilityController:
             data = await self.bridge.press_home()
             return ActionResult(
                 action=AccessibilityAction.CLOSE_APP,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Sent app to background: {package_name}",
                 data={"package_name": package_name}
             )
@@ -810,21 +817,32 @@ class AccessibilityController:
             )
     
     async def _handle_switch_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
-        """Handle switch app action (human-style launch or open recents)"""
-        app_name = kwargs.get("app_name", "")
-        
+        """Handle switch app action.
+
+        With an app name, switches via the human-style launcher search
+        (package names are never used). Without one, opens the recents
+        overview.
+        """
+        app_name = kwargs.get("app_name", "") or kwargs.get("package_name", "")
+
         try:
             if app_name:
-                self.logger.info(f"Switching to app by name: {app_name}")
+                self.logger.info(f"Switching to app via launcher search: {app_name}")
                 data = await self.bridge.launch_app_by_name(app_name)
-                message = f"Switched to app: {app_name}"
+                ok = bool(isinstance(data, dict) and data.get("ok"))
+                if ok:
+                    message = f"Switched to app: {app_name}"
+                else:
+                    reason = data.get("error", "unknown error") if isinstance(data, dict) else "unexpected bridge reply"
+                    message = f"Could not switch to app {app_name}: {reason}"
             else:
                 self.logger.info("Opening recents overview")
                 data = await self.bridge.press_recents()
+                ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
                 message = "Opened recents overview"
             return ActionResult(
                 action=AccessibilityAction.SWITCH_APP,
-                success=bool(data.get("ok")) if isinstance(data, dict) else False,
+                success=ok,
                 message=message,
                 data={"app_name": app_name, "bridge": data}
             )
@@ -911,7 +929,7 @@ class AccessibilityController:
         return await self.perform_action(AccessibilityAction.SCROLL, direction=direction, amount=amount)
     
     async def open_app(self, app_name: str) -> ActionResult:
-        """Open an app by its visible name through the launcher search."""
+        """Open an app by its visible name (human-style launcher search)."""
         return await self.perform_action(AccessibilityAction.OPEN_APP, app_name=app_name)
     
     async def close_app(self, package_name: str = "") -> ActionResult:

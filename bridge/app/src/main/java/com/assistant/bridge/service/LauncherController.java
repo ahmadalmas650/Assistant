@@ -115,6 +115,12 @@ final class LauncherController {
                 + ",\"package\":" + json(launchedPackage) + "}";
     }
 
+    /**
+     * Launch by package identifier. Intentionally NOT implemented: every
+     * launch must go through the human-style launcher search above, so
+     * package-based launching does not exist anywhere in this bridge.
+     */
+
     static String isInstalled(Context context, String pkg) {
         if (pkg == null || pkg.trim().isEmpty()) {
             return "{\"ok\":false,\"error\":\"no package given\"}";

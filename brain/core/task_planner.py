@@ -92,11 +92,32 @@ class TaskPlan:
             "required_apps": self.required_apps,
             "required_resources": self.required_resources,
             "missing_requirements": self.missing_requirements,
-            "complexity": self.complexity.name,
+            "complexity": self.complexity.name.lower(),
             "estimated_duration": self.estimated_duration,
             "priority": self.priority,
             "created_at": self.created_at
         }
+
+    # Dict compatibility so consumers written against plain dictionaries
+    # (plan.get("steps"), plan["missing_requirements"], ...) keep working
+    # when the TaskPlan dataclass is passed around.
+    def get(self, key: str, default=None):
+        return self.to_dict().get(key, default)
+
+    def __getitem__(self, key: str):
+        d = self.to_dict()
+        if key not in d:
+            raise KeyError(key)
+        return d[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.to_dict()
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def items(self):
+        return self.to_dict().items()
 
 
 class TaskPlanner:
@@ -315,7 +336,12 @@ class TaskPlanner:
         """
         start_time = time.time()
         
-        intent = command_data.get("intent", "")
+        # Normalise the intent: the parser's to_dict()/get() expose the
+        # IntentType enum member name ("OPEN", "SEARCH", ...), while the
+        # templates and the custom branches use lowercase names. A raw
+        # enum (auto() ints) or a plain string is handled as well.
+        raw_intent = command_data.get("intent", "")
+        intent = str(getattr(raw_intent, "name", raw_intent)).lower()
         entities = command_data.get("entities", {})
         text = command_data.get("text", "")
         
@@ -593,7 +619,8 @@ class TaskPlanner:
     
     async def _create_custom_plan(self, command_data: Dict) -> TaskPlan:
         """Create a custom plan based on intent and entities"""
-        intent = command_data.get("intent", "")
+        raw_intent = command_data.get("intent", "")
+        intent = str(getattr(raw_intent, "name", raw_intent)).lower()
         entities = command_data.get("entities", {})
         text = command_data.get("text", "")
         
@@ -605,7 +632,45 @@ class TaskPlanner:
         required_apps = []
         
         # Intent-based step generation
-        if intent in ["upload", "post", "share"]:
+        if intent in ["open", "launch", "start"]:
+            # Human-style launch: a single step; the bridge goes to the
+            # home screen, opens the launcher search, types the visible
+            # app name and clicks the icon. Package names are never used.
+            app_name = ""
+            for entity in (entities or {}).values():
+                if isinstance(entity, dict) and entity.get("type") == "APP":
+                    app_name = str(entity.get("value", "")).strip()
+                    break
+                if hasattr(entity, "entity_type") and \
+                        getattr(getattr(entity, "entity_type", None), "name", "") == "APP":
+                    app_name = str(getattr(entity, "value", "")).strip()
+                    break
+            if not app_name:
+                # Honest fallback: use the command words themselves minus
+                # the open verbs and fillers, so "jarvis calculator kholo"
+                # still yields "calculator" for the launcher search.
+                drop = {
+                    "open", "launch", "start", "kholo", "khol", "chala",
+                    "chalao", "chalaao", "do", "karo", "kro", "kardo",
+                    "shuru", "please", "jarvis", "app", "application"
+                }
+                words = [w for w in text.lower().split() if w not in drop]
+                if words:
+                    app_name = " ".join(words[-3:])
+            if not app_name:
+                raise ValueError(
+                    "open command needs an app name for the launcher search"
+                )
+            steps.append(TaskStep(
+                id=f"step_{self._step_counter}",
+                action="open_app",
+                description=f"Open {app_name} through the launcher search",
+                parameters={"app_name": app_name},
+                required_resources={"accessibility": 1.0}
+            ))
+            self._step_counter += 1
+
+        elif intent in ["upload", "post", "share"]:
             steps.extend([
                 TaskStep(
                     id=f"step_{self._step_counter}",

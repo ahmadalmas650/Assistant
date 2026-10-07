@@ -148,6 +148,7 @@ class ExecutionController:
         self.register_handler("save_screenshot", self._handle_save_screenshot)
         self.register_handler("run_ocr", self._handle_run_ocr)
         self.register_handler("return_text", self._handle_return_text)
+        self.register_handler("open_app", self._handle_open_app)
         
         # Generic fallback
         self.register_handler("*", self._handle_generic_step)
@@ -584,6 +585,44 @@ class ExecutionController:
             "success": status in ("completed", "uploaded")
         }
     
+    async def _handle_open_app(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Open an app the way a human does, via the launcher search."""
+        app_name = step.parameters.get("app_name") or step.parameters.get("app")
+        if not app_name:
+            raise ValueError("open_app requires an 'app_name' parameter")
+
+        bridge = None
+        if self._accessibility is not None:
+            bridge = getattr(self._accessibility, "bridge", None)
+
+        if bridge is None or not hasattr(bridge, "launch_app_by_name"):
+            raise RuntimeError(
+                "open_app is not available: the bridge (Bridge APK) is not "
+                "wired into the ExecutionController"
+            )
+
+        launch_data = await bridge.launch_app_by_name(str(app_name))
+
+        if not (isinstance(launch_data, dict) and launch_data.get("ok")):
+            reason = (
+                launch_data.get("error", "unknown error")
+                if isinstance(launch_data, dict) else "unexpected bridge reply"
+            )
+            raise RuntimeError(
+                f"Could not open '{app_name}' through the launcher search: {reason}"
+            )
+
+        launched_package = launch_data.get("package")
+        self.logger.info(f"Opened {app_name} (package: {launched_package})")
+        return {
+            "action": "open_app",
+            "app": str(app_name),
+            "package": launched_package,
+            "launch_method": "launcher_search",
+            "status": "opened",
+            "response": f"{str(app_name)} khol diya hai."
+        }
+
     async def _handle_open_editor(self, step: TaskStep, step_map: Dict) -> Dict:
         """Handle opening an editor app (real, human-style launch via bridge)."""
         app = step.parameters.get("app")

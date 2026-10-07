@@ -52,6 +52,38 @@ class Decision:
         if self.metadata is None:
             self.metadata = {}
 
+    def to_dict(self) -> Dict:
+        return {
+            "action": self.action.name if hasattr(self.action, "name") else self.action,
+            "level": self.level.name if hasattr(self.level, "name") else self.level,
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "alternatives": self.alternatives,
+            "required_info": self.required_info,
+            "metadata": self.metadata
+        }
+
+    # Dict compatibility so consumers written against plain dictionaries
+    # (decision.get("action"), decision["reason"], ...) keep working when
+    # the Decision dataclass is passed around.
+    def get(self, key: str, default=None):
+        return self.to_dict().get(key, default)
+
+    def __getitem__(self, key: str):
+        d = self.to_dict()
+        if key not in d:
+            raise KeyError(key)
+        return d[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.to_dict()
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def items(self):
+        return self.to_dict().items()
+
 
 class DecisionMaker:
     """

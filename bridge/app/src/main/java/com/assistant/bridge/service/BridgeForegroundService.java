@@ -183,12 +183,6 @@ public class BridgeForegroundService extends Service {
                 return "press_home".equals(method) ? svc.pressHome() : svc.pressRecents();
             }
 
-            case "launch_app":
-                // Package-based launching is intentionally disabled: apps
-                // are only opened like a human, via the launcher search.
-                return errJson("package-based launching is disabled; "
-                        + "use launch_app_by_name (launcher search)");
-
             case "launch_app_by_name":
                 return LauncherController.launchByName(this,
                         AccessibilityBridgeService.getInstance(),

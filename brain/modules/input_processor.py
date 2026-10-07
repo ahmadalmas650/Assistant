@@ -38,6 +38,26 @@ class ProcessedInput:
             "metadata": self.metadata
         }
 
+    # Dict compatibility so consumers written against plain dictionaries
+    # (data.get("text"), data["valid"], "text" in data, ...) keep working.
+    def get(self, key: str, default=None):
+        return self.to_dict().get(key, default)
+
+    def __getitem__(self, key: str):
+        d = self.to_dict()
+        if key not in d:
+            raise KeyError(key)
+        return d[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.to_dict()
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def items(self):
+        return self.to_dict().items()
+
 
 class InputProcessor:
     """
@@ -84,6 +104,27 @@ class InputProcessor:
         """
         try:
             if input_type == "voice":
+                # A non-empty string payload is the FINAL transcript of a
+                # live voice session (mic on, word-by-word preview, edited
+                # via stt_set_text). It is used as-is: re-running the
+                # recognizer would start a brand-new one-shot recognition
+                # instead of using the words the user already said.
+                if isinstance(input_data, str) and input_data.strip():
+                    cleaned = self._clean_text(input_data)
+                    self.logger.debug(
+                        f"Using live voice transcript: {cleaned[:50]}..."
+                    )
+                    for callback in self._on_text_input:
+                        try:
+                            callback(cleaned)
+                        except Exception as e:
+                            self.error_handler.handle_error(e, "text_input_callback")
+                    return ProcessedInput(
+                        text=cleaned,
+                        input_type="voice",
+                        confidence=1.0,
+                        metadata={"source": "live_session_transcript"}
+                    )
                 return await self._process_voice(input_data)
             else:
                 return await self._process_text(input_data)

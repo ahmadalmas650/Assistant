@@ -204,47 +204,68 @@ class BrainEngine:
         self.set_state(BrainState.PROCESSING)
         
         try:
-            # Step 1: Process input
+            # Step 1: Process input. For a voice session the command text
+            # has already been recognized live by the Bridge APK (mic on,
+            # word-by-word preview, editable via stt_set_text), so a string
+            # payload is the final transcript and is used as-is instead of
+            # triggering a second one-shot recognition.
             self.logger.info(f"Processing {input_type} input: {input_data[:50]}...")
             processed_input = await self.input_processor.process(input_data, input_type)
-            
-            # Step 2: Check for wake word
-            if not self._check_wake_word(processed_input.get("text", "")):
+
+            command_text = (getattr(processed_input, "text", "") or "").strip()
+            if not command_text:
+                self.set_state(BrainState.IDLE)
+                return {"status": "error", "error": "empty_command"}
+
+            # Step 2: Check for wake word. In a voice session the wake word
+            # was already consumed by the wake-word detector in the Bridge
+            # APK (wake -> command transition strips it), so the gate only
+            # applies to typed text input.
+            if input_type != "voice" and not self._check_wake_word(command_text):
                 self.set_state(BrainState.IDLE)
                 return {"status": "ignored", "reason": "no_wake_word"}
-            
+
             # Step 3: Parse command
-            command_data = await self.command_parser.parse(processed_input["text"])
-            
+            command_data = await self.command_parser.parse(command_text)
+
             if not command_data.get("valid", False):
                 self.set_state(BrainState.IDLE)
                 return {"status": "error", "error": "invalid_command"}
-            
+
             # Step 4: Check privacy
             privacy_check = self.privacy_guard.check_input(command_data)
             if privacy_check.get("blocked", False):
                 self.set_state(BrainState.IDLE)
                 return {"status": "error", "error": "privacy_violation"}
-            
+
             # Step 5: Plan task
             task_plan = await self.task_planner.plan(command_data)
-            
+
             # Step 6: Get confidence
             confidence = self.confidence_engine.calculate_confidence(
                 command_data, task_plan
             )
-            
+
             # Step 7: Make decision
             decision = self.decision_maker.make_decision(
                 command_data, task_plan, confidence
             )
-            
-            if decision.get("action", "") == "ask_user":
+
+            action = getattr(decision, "action", None)
+            action_name = getattr(action, "name", str(action)).upper()
+            if action_name == "ASK_USER":
                 self.set_state(BrainState.IDLE)
                 return {
                     "status": "needs_input",
-                    "decision": decision,
-                    "preview": task_plan
+                    "decision": decision.to_dict() if hasattr(decision, "to_dict") else decision,
+                    "preview": task_plan.to_dict() if hasattr(task_plan, "to_dict") else task_plan
+                }
+            if action_name == "REJECT":
+                # A rejected (e.g. dangerous) command must never execute.
+                self.set_state(BrainState.IDLE)
+                return {
+                    "status": "rejected",
+                    "decision": decision.to_dict() if hasattr(decision, "to_dict") else decision
                 }
             
             # Step 8: Execute task
@@ -252,12 +273,21 @@ class BrainEngine:
             execution_result = await self.execution_controller.execute(
                 task_plan, confidence
             )
+            # Normalise to a plain dictionary so every consumer (learning,
+            # callbacks, the caller that speaks the response) gets
+            # dict-shaped data.
+            execution_dict = (
+                execution_result.to_dict()
+                if hasattr(execution_result, "to_dict") else execution_result
+            )
             
             # Step 9: Handle learning
             if self.config.learning_enabled:
                 self.set_state(BrainState.LEARNING)
                 await self.learning_manager.learn_from_execution(
-                    command_data, task_plan, execution_result
+                    command_data,
+                    task_plan.to_dict() if hasattr(task_plan, "to_dict") else task_plan,
+                    execution_dict
                 )
             
             # Step 10: Cleanup and return
@@ -266,7 +296,7 @@ class BrainEngine:
             # Notify task completion
             for callback in self._on_task_complete:
                 try:
-                    callback(execution_result)
+                    callback(execution_dict)
                 except Exception as e:
                     self.error_handler.handle_error(e, "task_complete_callback")
             
@@ -275,7 +305,7 @@ class BrainEngine:
             
             return {
                 "status": "success",
-                "result": execution_result,
+                "result": execution_dict,
                 "processing_time": processing_time,
                 "confidence": confidence
             }
@@ -308,39 +338,45 @@ class BrainEngine:
         try:
             # Parse command
             command_data = await self.command_parser.parse(command)
-            
+
             if not command_data.get("valid", False):
                 return {"status": "error", "error": "invalid_command"}
-            
+
             # Plan task
             task_plan = await self.task_planner.plan(command_data)
-            
+
             if preview_only:
                 return {
                     "status": "preview",
-                    "plan": task_plan,
-                    "command": command_data
+                    "plan": task_plan.to_dict() if hasattr(task_plan, "to_dict") else task_plan,
+                    "command": command_data.to_dict() if hasattr(command_data, "to_dict") else command_data
                 }
-            
+
             # Calculate confidence
             confidence = self.confidence_engine.calculate_confidence(
                 command_data, task_plan
             )
-            
+
             # Execute
             execution_result = await self.execution_controller.execute(
                 task_plan, confidence
             )
-            
+            execution_dict = (
+                execution_result.to_dict()
+                if hasattr(execution_result, "to_dict") else execution_result
+            )
+
             # Learn from execution
             if self.config.learning_enabled:
                 await self.learning_manager.learn_from_execution(
-                    command_data, task_plan, execution_result
+                    command_data,
+                    task_plan.to_dict() if hasattr(task_plan, "to_dict") else task_plan,
+                    execution_dict
                 )
-            
+
             return {
                 "status": "success",
-                "result": execution_result,
+                "result": execution_dict,
                 "confidence": confidence
             }
             

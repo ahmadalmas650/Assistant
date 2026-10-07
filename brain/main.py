@@ -430,18 +430,94 @@ class JARVIS:
                     self.wake_word_detector.start()
     
     def _extract_response_text(self, result: Dict) -> str:
-        """Best-effort extraction of the spoken response from a result."""
+        """Best-effort extraction of the spoken response from a result.
+
+        The brain returns {"status", "result", ...} where result is the
+        ExecutionResult dict; individual step outputs carry their own
+        "response" strings. This walks every layer so the assistant
+        always has something honest to speak.
+        """
         if not isinstance(result, dict):
             return ""
+
+        def _clean(value) -> str:
+            return value.strip() if isinstance(value, str) else ""
+
+        # Layer 1: top-level plain response keys
         for key in ("response", "message", "text", "final_output"):
             value = result.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+            if _clean(value):
+                return _clean(value)
             if isinstance(value, dict):
                 for sub in ("response", "message", "text", "output"):
-                    sub_value = value.get(sub)
-                    if isinstance(sub_value, str) and sub_value.strip():
-                        return sub_value.strip()
+                    if _clean(value.get(sub)):
+                        return _clean(value.get(sub))
+
+        # Layer 2: nested execution result
+        inner = result.get("result")
+        if isinstance(inner, dict):
+            for key in ("response", "message", "text", "final_output", "output"):
+                if _clean(inner.get(key)):
+                    return _clean(inner.get(key))
+            # Layer 2b: attributes/summary inside the result payload
+            payload = inner.get("result") if isinstance(inner.get("result"), dict) else None
+            if payload:
+                for key in ("response", "message", "text", "summary", "output"):
+                    if _clean(payload.get(key)):
+                        return _clean(payload.get(key))
+            # Layer 2c: final_output of the execution (often the last
+            # step's output dict, e.g. open_app's spoken response)
+            final_output = inner.get("final_output")
+            if isinstance(final_output, dict):
+                for key in ("response", "message", "text", "summary", "output"):
+                    if _clean(final_output.get(key)):
+                        return _clean(final_output.get(key))
+
+        # Layer 3: step outputs (open_app, search, present_results, ...)
+        step_results = None
+        if isinstance(inner, dict):
+            step_results = inner.get("step_results")
+        if not step_results and isinstance(result.get("step_results"), list):
+            step_results = result.get("step_results")
+        if isinstance(step_results, list):
+            for step in reversed(step_results):
+                if not isinstance(step, dict):
+                    continue
+                output = step.get("output")
+                if isinstance(output, dict):
+                    for key in ("response", "message", "text", "summary", "output"):
+                        if _clean(output.get(key)):
+                            return _clean(output.get(key))
+                if _clean(step.get("response")):
+                    return _clean(step.get("response"))
+                if _clean(output):
+                    return _clean(output)
+
+        # Honest status-based fallbacks so the user always gets feedback
+        status = str(result.get("status", "")).lower()
+        if status == "success":
+            return "Kaam mukammal ho gaya hai."
+        if status == "needs_input":
+            decision = result.get("decision")
+            if isinstance(decision, dict):
+                required = decision.get("required_info")
+                if isinstance(required, list) and required:
+                    return "Tasdeeq chahiye: " + "; ".join(str(r) for r in required)
+                if _clean(decision.get("reason")):
+                    return _clean(decision.get("reason"))
+            return "Is kaam ke liye mazeed maloomat chahiye."
+        if status == "rejected":
+            decision = result.get("decision")
+            if isinstance(decision, dict) and _clean(decision.get("reason")):
+                return "Ye kaam manzur nahi: " + _clean(decision.get("reason"))
+            return "Ye kaam manzur nahi hai."
+        if status == "error":
+            error = result.get("error")
+            if _clean(error):
+                return f"Masla paida hua: {_clean(error)}"
+            return "Kaam mukammal nahi ho saka."
+        if status == "ignored":
+            return "Wake word nahi mila."
         return ""
     
     async def shutdown(self):

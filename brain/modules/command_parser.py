@@ -123,6 +123,27 @@ class ParsedCommand:
             "timestamp": self.timestamp
         }
 
+    # Dict compatibility so consumers written against plain dictionaries
+    # (data.get("intent"), data["valid"], "entities" in data, ...) keep
+    # working when the ParsedCommand dataclass is passed around.
+    def get(self, key: str, default=None):
+        return self.to_dict().get(key, default)
+
+    def __getitem__(self, key: str):
+        d = self.to_dict()
+        if key not in d:
+            raise KeyError(key)
+        return d[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.to_dict()
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def items(self):
+        return self.to_dict().items()
+
 
 class CommandParser:
     """
@@ -207,12 +228,24 @@ class CommandParser:
             IntentType.OPEN: [
                 (r'\bopen\b', 0.9),
                 (r'\blaunch\b', 0.85),
-                (r'\bstart\b', 0.8)
+                (r'\bstart\b', 0.8),
+                (r'\bkholo\b', 0.9),
+                (r'\bkhol\s+do\b', 0.9),
+                (r'\bkhol\b', 0.85),
+                (r'\bchala\s+do\b', 0.85),
+                (r'\bchalado\b', 0.85),
+                (r'\bchalao\b', 0.85),
+                (r'\bchalaao\b', 0.85),
+                (r'\bshuru\s+karo\b', 0.8)
             ],
             IntentType.CLOSE: [
                 (r'\bclose\b', 0.9),
                 (r'\bexit\b', 0.85),
-                (r'\bquit\b', 0.8)
+                (r'\bquit\b', 0.8),
+                (r'\bband\s+karo\b', 0.9),
+                (r'\bband\s+kro\b', 0.9),
+                (r'\bband\s+kardo\b', 0.9),
+                (r'\bband\s+kar\s+do\b', 0.9)
             ],
             IntentType.SEND: [
                 (r'\bsend\b', 0.9),
@@ -522,6 +555,41 @@ class CommandParser:
                     metadata={"package": package}
                 ))
         
+        # Generic app names: one to three words right before an open verb
+        # ("calculator kholo", "whatsapp chala do", "settings open karo").
+        # The captured spoken name is what the human-style launcher search
+        # will type, so any installed app works even when it is not in the
+        # known list above. Package names are never involved.
+        filler_words = {
+            'please', 'jarvis', 'karo', 'kro', 'kardo', 'kar', 'do',
+            'dijiye', 'open', 'launch', 'start', 'shuru', 'app', 'application'
+        }
+        open_verbs = (
+            r'(?:kholo|khol|chala\s+do|chalado|chalao|chalaao|open|launch|start)'
+        )
+        generic_pattern = re.compile(
+            r'\b([a-z0-9][a-z0-9\s]{0,30}?)\s*' + open_verbs + r'\b',
+            re.IGNORECASE
+        )
+        for match in generic_pattern.finditer(text):
+            words = [
+                w for w in match.group(1).lower().split()
+                if w not in filler_words
+            ]
+            if not words:
+                continue
+            candidate = " ".join(words[-3:]).strip()
+            if not candidate or candidate in known_apps:
+                continue
+            entities.append(ExtractedEntity(
+                value=candidate,
+                entity_type=EntityType.APP,
+                confidence=0.7,
+                start_pos=match.start(1),
+                end_pos=match.start(1) + len(match.group(1)),
+                metadata={"source": "spoken_name"}
+            ))
+
         # Generic app references
         app_patterns = [
             (r'\bapp\b', EntityType.APP),
