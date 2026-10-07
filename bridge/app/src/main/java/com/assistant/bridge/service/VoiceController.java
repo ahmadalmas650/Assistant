@@ -136,6 +136,13 @@ final class VoiceController {
         }
         this.wakeWord = (word == null || word.isEmpty()) ? "jarvis" : word.toLowerCase();
         this.language = (lang == null || lang.isEmpty()) ? DEFAULT_LANGUAGE : lang;
+        // Stop any TTS still playing so the wake microphone never listens
+        // to the assistant's own voice (feedback protection).
+        if (tts != null) {
+            tts.stop();
+        }
+        ttsRemaining.set(0);
+        ttsDone.set(true);
         synchronized (textLock) {
             commandText = new StringBuilder();
             partialPreview = "";

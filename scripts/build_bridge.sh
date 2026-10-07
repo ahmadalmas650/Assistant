@@ -69,6 +69,18 @@ if ! command -v java &> /dev/null; then
     fi
 fi
 
+# Check download/extract tools needed for the Gradle install
+for tool in wget unzip; do
+    if ! command -v "$tool" &> /dev/null; then
+        log_info "Installing $tool..."
+        pkg install -y "$tool" >> "$BUILD_LOG" 2>&1
+        if ! command -v "$tool" &> /dev/null; then
+            log_error "$tool is required but could not be installed"
+            exit 1
+        fi
+    fi
+done
+
 JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d'"' -f 2)
 log_success "Java version: $JAVA_VERSION"
 
@@ -82,9 +94,11 @@ if ! command -v gradle &> /dev/null; then
     log_info "Gradle not found, installing..."
     
     # Install Gradle
+    # -bin.zip is the small binary-only distribution; the -all distribution
+    # is several times larger and not needed on a 3 GB RAM phone.
     GRADLE_VERSION="8.1.1"
     GRADLE_DIR="$PREFIX/opt/gradle"
-    GRADLE_ZIP="gradle-$GRADLE_VERSION-all.zip"
+    GRADLE_ZIP="gradle-$GRADLE_VERSION-bin.zip"
     GRADLE_URL="https://services.gradle.org/distributions/$GRADLE_ZIP"
     
     mkdir -p "$GRADLE_DIR"
@@ -140,10 +154,9 @@ REQUIRED_PACKAGES=(
 
 for pkg in "${REQUIRED_PACKAGES[@]}"; do
     if [ ! -d "$ANDROID_HOME/$pkg" ]; then
-        log_info "Installing SDK package: $pkg..."
-        # Note: In Termux, you need to use sdkmanager or install manually
-        # This is a placeholder - actual installation may vary
-        log_warning "SDK package $pkg not found. You may need to install it manually."
+        log_warning "SDK package $pkg not found under $ANDROID_HOME."
+        log_warning "Run 'sdkmanager --install \"$pkg\"' (or the Termux"
+        log_warning "android-sdk installer) once; Gradle cannot install it itself."
     fi
 done
 
@@ -153,8 +166,8 @@ log_info "Setting up Gradle environment..."
 # Create gradle.properties if it doesn't exist
 if [ ! -f "$BRIDGE_DIR/gradle.properties" ]; then
     cat > "$BRIDGE_DIR/gradle.properties" << 'EOF'
-# Project-wide Gradle settings.
-org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+# Project-wide Gradle settings (3 GB RAM device profile).
+org.gradle.jvmargs=-Xmx1024m -Dfile.encoding=UTF-8
 org.gradle.daemon=true
 android.useAndroidX=true
 android.enableJetifier=true
@@ -164,18 +177,23 @@ EOF
     log_info "Created gradle.properties"
 fi
 
-# Build the APK
-log_info "Building JARVIS Bridge APK..."
-
+# Pick the Gradle command: use the wrapper if it is present, otherwise the
+# standalone Gradle installed above (this repository ships no wrapper).
 cd "$BRIDGE_DIR"
+if [ -x "./gradlew" ]; then
+    GRADLE_CMD="./gradlew"
+else
+    GRADLE_CMD="gradle"
+fi
+log_info "Using Gradle command: $GRADLE_CMD"
 
 # Clean previous build
 log_info "Cleaning previous build..."
-./gradlew clean >> "$BUILD_LOG" 2>&1
+"$GRADLE_CMD" clean >> "$BUILD_LOG" 2>&1
 
 # Build debug APK
 log_info "Building debug APK..."
-./gradlew assembleDebug --stacktrace >> "$BUILD_LOG" 2>&1
+"$GRADLE_CMD" assembleDebug --stacktrace >> "$BUILD_LOG" 2>&1
 
 # Check if APK was built
 if [ -f "$OUTPUT_APK" ]; then

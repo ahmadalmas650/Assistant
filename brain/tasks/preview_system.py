@@ -237,7 +237,7 @@ class PreviewSystem:
         # actually in the user's allowed apps list are suggested)
         missing_apps = [req[4:] for req in plan.missing_requirements if req.startswith("app:")]
         app_alternatives = {
-            "com.kinemaster": ["com.adobe.premiererush", "com.cyberlink.powerdirector.DESKTOP"],
+            "com.nexstreaming.app.kinemasterfree": ["com.adobe.premiererush", "com.cyberlink.powerdirector.DESKTOP"],
             "com.openai.chatgpt": ["com.deepseek.app", "com.grok"],
             "com.google.android.youtube": []
         }

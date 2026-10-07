@@ -234,7 +234,7 @@ class AppIntegrator:
                 ]
             ),
             AppInfo(
-                package_name="com.grok",
+                package_name="ai.x.grok",
                 app_name="Grok",
                 category=AppCategory.AI_ASSISTANT,
                 capabilities=[
@@ -284,7 +284,7 @@ class AppIntegrator:
                 capabilities=["messaging", "file_sharing", "channels", "bots"]
             ),
             AppInfo(
-                package_name="com.kinemaster",
+                package_name="com.nexstreaming.app.kinemasterfree",
                 app_name="Kinemaster",
                 category=AppCategory.MULTIMEDIA,
                 capabilities=["video_editing", "audio_editing", "effects", "export"]
@@ -626,7 +626,7 @@ class AppIntegrator:
             apps = [
                 "com.openai.chatgpt",
                 "com.deepseek.app",
-                "com.grok"
+                "ai.x.grok"
             ]
 
         results = {}
@@ -697,7 +697,7 @@ class AppIntegrator:
             sources = [
                 "com.openai.chatgpt",
                 "com.deepseek.app",
-                "com.grok",
+                "ai.x.grok",
                 "com.android.chrome"
             ]
 
@@ -787,7 +787,7 @@ class AppIntegrator:
             apps = [
                 "com.openai.chatgpt",
                 "com.deepseek.app",
-                "com.grok"
+                "ai.x.grok"
             ]
 
         results = await self.query_ai(query, apps)

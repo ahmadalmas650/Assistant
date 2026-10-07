@@ -414,8 +414,11 @@ class JARVIS:
             result = await self.process_command(command, "voice")
             response = self._extract_response_text(result)
             if response:
-                # Streaming Urdu TTS: the first sentence starts at once
-                await self.output_generator.speak(response, "ur-PK")
+                # Streaming Urdu TTS: the first sentence starts at once.
+                # speak_wait blocks until the APK finishes playing, so the
+                # wake phase (microphone) restarts only AFTER the assistant
+                # has stopped speaking, exactly as required.
+                await self.output_generator.speak_wait(response, "ur-PK")
         except ValueError as e:
             self.logger.warning(f"Voice session ended: {e}")
         except Exception as e:

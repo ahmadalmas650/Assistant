@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple vector launcher icon for the JARVIS Bridge APK: a blue rounded
+     square with a white ring and blue core (no binary assets needed, so
+     the whole repository stays text-only and buildable from source). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#1A237E"
+        android:pathData="M10,2L38,2A8,8 0 0,1 46,10L46,38A8,8 0 0,1 38,46L10,46A8,8 0 0,1 2,38L2,10A8,8 0 0,1 10,2Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,24a10,10 0 1,0 20,0a10,10 0 1,0 -20,0Z" />
+    <path
+        android:fillColor="#1A237E"
+        android:pathData="M18.5,24a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0 -11,0Z" />
+</vector>

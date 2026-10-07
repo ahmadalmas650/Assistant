@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bridgePrimary">#1A237E</color>
+    <color name="bridgePrimaryDark">#0D1442</color>
+    <color name="bridgeAccent">#3949AB</color>
+</resources>

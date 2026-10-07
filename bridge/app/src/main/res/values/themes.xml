@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme (ActionBar kept for the bridge settings UI). -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/bridgePrimary</item>
+        <item name="colorPrimaryDark">@color/bridgePrimaryDark</item>
+        <item name="colorAccent">@color/bridgeAccent</item>
+    </style>
+
+    <!-- No-action-bar variant used by MainActivity. -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/bridgePrimary</item>
+        <item name="colorPrimaryDark">@color/bridgePrimaryDark</item>
+        <item name="colorAccent">@color/bridgeAccent</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+</resources>

@@ -277,9 +277,9 @@ class MultiSourceLearner:
         # Check if source is available via app integrator
         if source.source_type == SourceType.AI_ASSISTANT:
             package_map = {
-                "chatgpt": "com.chatgpt",
+                "chatgpt": "com.openai.chatgpt",
                 "deepseek": "com.deepseek.app",
-                "grok": "com.grok"
+                "grok": "ai.x.grok"
             }
             package = package_map.get(source_id)
             if package:
@@ -346,9 +346,9 @@ class MultiSourceLearner:
         """Learn from an AI assistant source"""
         # Map source IDs to package names
         package_map = {
-            "chatgpt": "com.chatgpt",
+            "chatgpt": "com.openai.chatgpt",
             "deepseek": "com.deepseek.app",
-            "grok": "com.grok"
+            "grok": "ai.x.grok"
         }
         
         package = package_map.get(source_id)

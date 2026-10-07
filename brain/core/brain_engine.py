@@ -69,8 +69,8 @@ class BrainConfig:
         "com.google.android.youtube",
         "com.openai.chatgpt",
         "com.deepseek.app",
-        "com.grok",
-        "com.kinemaster",
+        "ai.x.grok",
+        "com.nexstreaming.app.kinemasterfree",
         "org.telegram.messenger",
         "com.whatsapp"
     ])
