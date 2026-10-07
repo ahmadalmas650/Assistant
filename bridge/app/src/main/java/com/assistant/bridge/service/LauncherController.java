@@ -2,7 +2,6 @@ package com.assistant.bridge.service;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Context;
-import android.content.Intent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.Locale;
@@ -114,28 +113,6 @@ final class LauncherController {
         }
         return "{\"ok\":true,\"method\":\"accessibility_search\",\"app\":" + json(name)
                 + ",\"package\":" + json(launchedPackage) + "}";
-    }
-
-    /**
-     * Launch by package identifier. Used only as a fallback for apps the
-     * brain already knows; returns an honest error when not installed.
-     */
-    static String launchByPackage(Context context, String pkg) {
-        if (pkg == null || pkg.trim().isEmpty()) {
-            return "{\"ok\":false,\"error\":\"no package given\"}";
-        }
-        try {
-            Intent intent = context.getPackageManager()
-                    .getLaunchIntentForPackage(pkg.trim());
-            if (intent == null) {
-                return "{\"ok\":false,\"error\":\"app not installed: " + pkg.trim() + "\"}";
-            }
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            return "{\"ok\":true,\"method\":\"package\",\"package\":" + json(pkg.trim()) + "}";
-        } catch (Exception e) {
-            return "{\"ok\":false,\"error\":\"launch failed: " + e.getMessage() + "\"}";
-        }
     }
 
     static String isInstalled(Context context, String pkg) {

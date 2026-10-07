@@ -504,8 +504,13 @@ class AppIntegrator:
             )
 
     async def _action_open(self, app: AppInfo, start_time: float) -> AppResult:
-        """Launch the app for real and confirm the foreground package."""
-        result = await self.bridge.launch_app(app.package_name)
+        """Launch the app for real, like a human, and confirm the foreground.
+
+        The launch ALWAYS goes through the launcher search with the app's
+        visible name (launch_app_by_name). Package-based launching does
+        not exist anywhere in this system.
+        """
+        result = await self.bridge.launch_app_by_name(app.app_name)
         ok = bool(isinstance(result, dict) and result.get("ok", True))
         if not ok:
             reason = result.get("error", "launch_app returned failure") if isinstance(result, dict) else "unexpected bridge reply"
@@ -530,11 +535,12 @@ class AppIntegrator:
     async def _action_query(self, app: AppInfo, action: AppAction,
                            text: str, start_time: float) -> AppResult:
         """
-        Launch the app, type the query, wait for the response to render, and
+        Launch the app through the launcher search (human-style, by visible
+        name), type the query, wait for the response to render, and
         return the actual live screen text. Confidence is a heuristic based
         on how much on-screen text was captured.
         """
-        launch = await self.bridge.launch_app(app.package_name)
+        launch = await self.bridge.launch_app_by_name(app.app_name)
         if not (isinstance(launch, dict) and launch.get("ok", True)):
             reason = launch.get("error", "launch failed") if isinstance(launch, dict) else "unexpected bridge reply"
             return AppResult(

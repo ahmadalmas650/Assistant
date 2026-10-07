@@ -13,12 +13,14 @@ from enum import Enum
 
 @dataclass
 class DeviceConfig:
-    """Device configuration"""
+    """Device configuration (matches the actual target device: 3 GB RAM,
+    36 GB storage, Android 15, ARM64, Termux host)."""
     target_platform: str = "Android"
+    android_version: str = "15"
     min_sdk_version: int = 21
     target_sdk_version: int = 34
     min_ram_gb: float = 3.0
-    min_storage_gb: float = 10.0
+    min_storage_gb: float = 36.0
     architecture: str = "ARM64"
 
 
@@ -268,6 +270,8 @@ class Config:
             device_data = data["device"]
             if "target_platform" in device_data:
                 self.device.target_platform = device_data["target_platform"]
+            if "android_version" in device_data:
+                self.device.android_version = str(device_data["android_version"])
             if "min_sdk_version" in device_data:
                 self.device.min_sdk_version = device_data["min_sdk_version"]
             if "target_sdk_version" in device_data:
@@ -407,6 +411,7 @@ class Config:
             "author": self.author,
             "device": {
                 "target_platform": self.device.target_platform,
+                "android_version": self.device.android_version,
                 "min_sdk_version": self.device.min_sdk_version,
                 "target_sdk_version": self.device.target_sdk_version,
                 "min_ram_gb": self.device.min_ram_gb,

@@ -6,10 +6,11 @@
   
   "device": {
     "target_platform": "Android",
+    "android_version": "15",
     "min_sdk_version": 21,
     "target_sdk_version": 34,
     "min_ram": "3GB",
-    "min_storage": "10GB",
+    "min_storage": "36GB",
     "architecture": "ARM64"
   },
   

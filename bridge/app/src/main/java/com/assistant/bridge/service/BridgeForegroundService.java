@@ -184,7 +184,10 @@ public class BridgeForegroundService extends Service {
             }
 
             case "launch_app":
-                return LauncherController.launchByPackage(this, str(params, "package"));
+                // Package-based launching is intentionally disabled: apps
+                // are only opened like a human, via the launcher search.
+                return errJson("package-based launching is disabled; "
+                        + "use launch_app_by_name (launcher search)");
 
             case "launch_app_by_name":
                 return LauncherController.launchByName(this,

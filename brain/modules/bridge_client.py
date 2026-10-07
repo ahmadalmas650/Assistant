@@ -234,8 +234,11 @@ class BridgeClient:
     async def press_recents(self) -> Dict[str, Any]:
         return await self.call("press_recents")
 
-    async def launch_app(self, package: str) -> Dict[str, Any]:
-        return await self.call("launch_app", {"package": str(package)})
+    # NOTE: package-based launching (launch_app) intentionally does not
+    # exist. Apps are ONLY launched the way a human does, through the
+    # launcher search, via launch_app_by_name below. Package names are
+    # used exclusively for read-only checks (is_app_installed,
+    # get_foreground_app verification).
 
     async def notification_info(self) -> Dict[str, Any]:
         return await self.call("notification_info")
