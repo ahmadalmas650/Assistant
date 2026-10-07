@@ -1,4 +1,48 @@
-         "status": "captured"
+ self._dep_result(step, step_map, "merged_results")
+        
+        if dep_result:
+            results = dep_result.get("merged_results", [])
+            self.logger.info(f"Presenting {len(results)} results")
+            return {
+                "action": "present_results",
+                "results": results,
+                "count": len(results),
+                "status": "presented"
+            }
+        
+        return {"action": "present_results", "status": "no_results"}
+    
+    async def _handle_capture_screen(self, step: TaskStep, step_map: Dict) -> Dict:
+        """Capture the live on-screen text (real, via the accessibility bridge)."""
+        if self._accessibility is None:
+            raise RuntimeError(
+                "capture_screen is not available: the accessibility "
+                "controller is not wired into the ExecutionController"
+            )
+        
+        action_result = await self._accessibility.extract_screen_text()
+        
+        if not getattr(action_result, "success", False):
+            raise RuntimeError(
+                f"Live screen read failed: {getattr(action_result, 'message', 'unknown error')}"
+            )
+        
+        data = getattr(action_result, "data", None)
+        text = ""
+        if isinstance(data, dict):
+            text = str(data.get("text", ""))
+        elif isinstance(data, str):
+            text = data
+        
+        if not text:
+            raise RuntimeError(
+                "The current screen exposes no readable text nodes"
+            )
+        
+        return {
+            "action": "capture_screen",
+            "screen_text": text,
+            "status": "captured"
         }
     
     async def _handle_save_screenshot(self, step: TaskStep, step_map: Dict) -> Dict:

@@ -1,12 +1,18 @@
-ger.info(f"Opening app by name: {app_name}")
-        
-        try:
-            data = await self.bridge.launch_app_by_name(app_name)
+name)
+            opened = bool(isinstance(data, dict) and data.get("ok"))
+            if opened:
+                return ActionResult(
+                    action=AccessibilityAction.OPEN_APP,
+                    success=True,
+                    message=f"Opened app: {app_name}",
+                    data={"app_name": app_name, "package": data.get("package"), "bridge": data}
+                )
+            reason = data.get("error", "unknown error") if isinstance(data, dict) else "unexpected bridge reply"
             return ActionResult(
                 action=AccessibilityAction.OPEN_APP,
-                success=bool(data.get("ok")) if isinstance(data, dict) else False,
-                message=f"Opened app: {app_name}",
-                data={"app_name": app_name, "bridge": data}
+                success=False,
+                message=f"Could not open app {app_name}: {reason}",
+                data={"app_name": app_name}
             )
         except BridgeError as e:
             return ActionResult(
@@ -30,7 +36,7 @@ ger.info(f"Opening app by name: {app_name}")
             data = await self.bridge.press_home()
             return ActionResult(
                 action=AccessibilityAction.CLOSE_APP,
-                success=bool(data.get("success", True)) if isinstance(data, dict) else True,
+                success=bool(data.get("ok", True)) if isinstance(data, dict) else True,
                 message=f"Sent app to background: {package_name}",
                 data={"package_name": package_name}
             )
@@ -43,21 +49,32 @@ ger.info(f"Opening app by name: {app_name}")
             )
     
     async def _handle_switch_app(self, node: AccessibilityNode = None, **kwargs) -> ActionResult:
-        """Handle switch app action (human-style launch or open recents)"""
-        app_name = kwargs.get("app_name", "")
-        
+        """Handle switch app action.
+
+        With an app name, switches via the human-style launcher search
+        (package names are never used). Without one, opens the recents
+        overview.
+        """
+        app_name = kwargs.get("app_name", "") or kwargs.get("package_name", "")
+
         try:
             if app_name:
-                self.logger.info(f"Switching to app by name: {app_name}")
+                self.logger.info(f"Switching to app via launcher search: {app_name}")
                 data = await self.bridge.launch_app_by_name(app_name)
-                message = f"Switched to app: {app_name}"
+                ok = bool(isinstance(data, dict) and data.get("ok"))
+                if ok:
+                    message = f"Switched to app: {app_name}"
+                else:
+                    reason = data.get("error", "unknown error") if isinstance(data, dict) else "unexpected bridge reply"
+                    message = f"Could not switch to app {app_name}: {reason}"
             else:
                 self.logger.info("Opening recents overview")
                 data = await self.bridge.press_recents()
+                ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
                 message = "Opened recents overview"
             return ActionResult(
                 action=AccessibilityAction.SWITCH_APP,
-                success=bool(data.get("ok")) if isinstance(data, dict) else False,
+                success=ok,
                 message=message,
                 data={"app_name": app_name, "bridge": data}
             )
@@ -144,7 +161,7 @@ ger.info(f"Opening app by name: {app_name}")
         return await self.perform_action(AccessibilityAction.SCROLL, direction=direction, amount=amount)
     
     async def open_app(self, app_name: str) -> ActionResult:
-        """Open an app by its visible name through the launcher search."""
+        """Open an app by its visible name (human-style launcher search)."""
         return await self.perform_action(AccessibilityAction.OPEN_APP, app_name=app_name)
     
     async def close_app(self, package_name: str = "") -> ActionResult:

@@ -1,4 +1,59 @@
-ies, EntityType.PLATFORM)
+       value=match.group(),
+                entity_type=EntityType.NUMBER,
+                confidence=0.9,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                metadata={"type": "decimal"}
+            ))
+        
+        return entities
+    
+    def _extract_topic(self, text: str) -> List[ExtractedEntity]:
+        """Extract topic/keyword entities"""
+        entities = []
+        
+        # Extract nouns and noun phrases
+        # This is a simplified version - a full implementation would use NLP
+        words = text.split()
+        
+        # Skip common words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+        
+        for i, word in enumerate(words):
+            if word not in stop_words and len(word) > 2:
+                entities.append(ExtractedEntity(
+                    value=word,
+                    entity_type=EntityType.TOPIC,
+                    confidence=0.7,
+                    start_pos=0,  # Simplified
+                    end_pos=0,
+                    metadata={"type": "keyword"}
+                ))
+        
+        return entities
+    
+    def _extract_parameters(self, text: str, intent: IntentType, 
+                           entities: Dict[str, ExtractedEntity]) -> Dict:
+        """Extract parameters from command"""
+        parameters = {}
+        
+        # Intent-specific parameter extraction
+        if intent == IntentType.UPLOAD:
+            parameters["target"] = self._find_entity_value(entities, EntityType.PLATFORM)
+            parameters["file"] = self._find_entity_value(entities, EntityType.FILE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.VIDEO)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.IMAGE)
+            
+        elif intent == IntentType.EDIT:
+            parameters["file"] = self._find_entity_value(entities, EntityType.FILE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.IMAGE)
+            parameters["file"] = parameters["file"] or self._find_entity_value(entities, EntityType.VIDEO)
+            parameters["app"] = self._find_entity_value(entities, EntityType.APP)
+            
+        elif intent == IntentType.SEARCH:
+            parameters["query"] = self._find_entity_value(entities, EntityType.TEXT)
+            parameters["query"] = parameters["query"] or self._find_entity_value(entities, EntityType.TOPIC)
+            parameters["sources"] = self._find_all_entities(entities, EntityType.PLATFORM)
             
         elif intent == IntentType.SEND:
             parameters["recipient"] = self._find_entity_value(entities, EntityType.EMAIL)
